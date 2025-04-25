@@ -1,0 +1,9 @@
+name = "multiturn_rl"
+version = "0.1.0"
+dependencies = [
+    "clemcore",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
