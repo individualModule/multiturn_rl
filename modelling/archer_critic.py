@@ -5,6 +5,11 @@ Borrowed and adapted from archer paper.
 """
 TODO -> needs to implement device switching, tensor conversion, 
 etc. Completely unaligned rn, almost pseudocode
+
+Since policy is the model from Clemgame, need to figure out how to bridge that
+Need to make sure everything is on the same device.
+need to make sure the shapes are all in order
+
 """
 
 import torch
@@ -41,10 +46,9 @@ class CriticNetwork(nn.Module):
 
 class DoubleCritic(nn.Module):
     
-    def __init__(self, device, accelerator, critic_lm, cache_dir, in_dim, out_dim):
+    def __init__(self, device, critic_lm, cache_dir, in_dim, out_dim):
         super().__init__()
         self.device = device
-        self.accelerator = accelerator
 
         # Base LM
         self.base_lm = AutoModel.from_pretrained(critic_lm, cache_dir=cache_dir).to(device)
@@ -108,17 +112,14 @@ class ArcherAgent(nn.Module):
 
         raise NotImplementedError
 
-    def calculate_targets(self, critic, action, observation, reward, done, next_observation):
-        target_q1, target_q2, _, _ = self.critic(copy.deepcopy(observation), action)
-        pass
 
-
-    def get_critic_values(self):
+    def get_critic_values(self, observation, action):
         """
         Get Q and V values from the critic 
         """
         # q1, q2, v1, v2 = self.critic(observation, action, detach_model=False)
-        raise NotImplementedError
+
+        return self.critic(observation, action)
 
     def get_log_prob(self, observation, action):
         """
@@ -151,25 +152,29 @@ class ArcherAgent(nn.Module):
         return target_v1, target_v2
     
 
-    
-    def soft_target_update(self, target, param):
+    def soft_target_update(self, target_model, source_model, tau):
         """
-        update target Q and V using Polyak averaging;
-        """
-        raise NotImplementedError
+        Polyak averaging: target_model = tau * source_model + (1 - tau) * target_model
 
-    
+        Args:
+            target_model: the model we are slowly updating (e.g., EMA version)
+            source_model: the model we are tracking (e.g., current LLM/actor)
+            tau: interpolation factor (0 < tau <= 1), small tau = slow update
+        """
+
+        for target_param, source_param in zip(target_model.parameters(), source_model.parameters()):
+            target_param.data.copy_(tau * source_param.data + (1.0 - tau) * target_param.data)
+
+
     def compute_advantages(rewards: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
         """Computes the advantage as the difference between reward and value estimate."""
         return rewards - values
 
 
 class TDLoss(nn.Module):
-    def __init__(self, critic, target_critic, policy):
+    def __init__(self):
         super(TDLoss, self).__init__()
         self.criterion = nn.MSELoss()
-
-
 
     def forward(self, q1, q2, v1, v2, target_v1, target_v2, target_q1, target_q2):
 
@@ -193,6 +198,7 @@ class Reinforce(nn.Module):
             REINFORCE WITH BASELINE
             values -> logprob values used to calculate (value) advantage Loss
             """    
+
             values, log_prob, mask = log_prob
             advantage_loss = self.criterion((advantage * mask), (values * mask))
 
@@ -200,7 +206,5 @@ class Reinforce(nn.Module):
                 residual_advantage = advantage - values
 
             pg_loss = -torch.mean(torch.sum(residual_advantage * log_prob * mask, dim=1))
-
-
-
-            return advantage_loss, pg_loss, residual_advantage
+            loss = torch.sum(advantage_loss, pg_loss)
+            return loss

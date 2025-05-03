@@ -7,6 +7,11 @@ from torch.utils.data import Dataset
 import torch
 
 class StepRolloutDataloader(Dataset):
+    """
+    Goal of this fn is to enable sampling from the buffer, and also to enable random sampling
+    individual observations without the entire trajectory. We want to break linearity in training 
+    and stop models from overfitting on sequences.
+    """
     def __init__(self, trajectories):
         self.samples = []
         # Flatten trajectories into individual transition samples
