@@ -1,0 +1,11 @@
+defaults:
+  - trainer: default
+  - optimizer: default
+  - model: default
+  - loss: default
+  - game: default
+  - _self_
+
+project_name: archer-rl
+seed: 42
+device: cuda

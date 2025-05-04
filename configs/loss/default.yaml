@@ -1,0 +1,5 @@
+actor:
+  _target_: modelling.archer_critic.Reinforce
+
+critic:
+  _target_: modelling.archer_critic.TDLoss
