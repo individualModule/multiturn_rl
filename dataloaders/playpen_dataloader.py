@@ -23,9 +23,9 @@ class StepRolloutDataloader(Dataset):
                 self.samples.append({
                     'obs': current['context'],
                     'action': current['response'],
-                    'reward': current['info'].get('reward', 0),
+                    'reward': torch.tensor(current['info'].get('reward', 0), dtype=torch.float),
                     'next_obs': next_step['context'],
-                    'done': current['done']
+                    'done': torch.tensor(current['done'], dtype=torch.bool)
                 })
     
     def __len__(self):

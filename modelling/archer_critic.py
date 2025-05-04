@@ -101,16 +101,23 @@ class ArcherAgent(nn.Module):
         self.policy = policy
         self.critic = critic
         self.target_critic = target_critic
-        pass
+        
 
     def get_policy_action(self, observation):
         """
-        Sample the action from the policy
-        Take in observation, generate response.
-        Return -> response
+        Sample the action from the policy using the Player class's generate_response
         """
-
-        raise NotImplementedError
+        # Convert observation to message format expected by Player
+        messages = [{"role": "user", "content": obs} for obs in observation] if isinstance(observation, list) else [{"role": "user", "content": observation}]
+        
+        # Generate responses using the Player
+        responses = []
+        for msg in messages:
+            # Player.__call__ internally calls model.generate_response
+            _, _, response_text = self.policy([msg])
+            responses.append(response_text)
+            
+        return responses if len(responses) > 1 else responses[0]
 
 
     def get_critic_values(self, observation, action):
@@ -123,18 +130,22 @@ class ArcherAgent(nn.Module):
 
     def get_log_prob(self, observation, action):
         """
-        Get logprob of the generated sequence
+        Get logprob of the generated sequence using the model's calculate_logprobs
         """
-        raise NotImplementedError
-    
+        # The underlying HuggingFace model is accessed through player.model
+        return self.policy.get_logprobs(observation, action)    
 
     def compute_target_q(self, observation):
         """
         Compute target Q values using the policy generated from the sample.
         """
-        obs = copy.deepcopy(observation)
-        pi_action = self.get_policy_action(obs)
-        target_q1, target_q2, _ , _ = self.target_critic(obs, pi_action)
+
+        with torch.no_grad():
+            obs = copy.deepcopy(observation)
+            pi_action = self.get_policy_action(obs)
+            target_q1, target_q2, _ , _ = self.target_critic(obs, pi_action)
+        
+            assert target_q1.size(0) == len(observation), "Batch size mismatch"
 
         return target_q1, target_q2
     
@@ -145,9 +156,17 @@ class ArcherAgent(nn.Module):
         of the fwd function of critic.
         """
 
-        _, _ , target_v1, target_v2 = self.target_critic(next_observation, copy.deepcopy(action))
-        target_v1 = reward + (1 - done)*target_v1.flatten()*self.gamma
-        target_v2 = reward + (1 - done)*target_v2.flatten()*self.gamma
+        with torch.no_grad():
+
+            # Ensure reward and done are properly shaped [batch_size, 1]
+            if reward.dim() == 1:
+                reward = reward.unsqueeze(-1)
+            if done.dim() == 1:
+                done = done.unsqueeze(-1)
+
+            _, _ , target_v1, target_v2 = self.target_critic(next_observation, copy.deepcopy(action))
+            target_v1 = reward + (1 - done)*target_v1*self.gamma
+            target_v2 = reward + (1 - done)*target_v2*self.gamma
 
         return target_v1, target_v2
     
@@ -168,6 +187,12 @@ class ArcherAgent(nn.Module):
 
     def compute_advantages(rewards: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
         """Computes the advantage as the difference between reward and value estimate."""
+
+        if rewards.dim() == 1:
+            rewards = rewards.unsqueeze(-1)
+        if values.dim() == 1:
+            values = values.unsqueeze(-1)
+        
         return rewards - values
 
 
@@ -177,6 +202,10 @@ class TDLoss(nn.Module):
         self.criterion = nn.MSELoss()
 
     def forward(self, q1, q2, v1, v2, target_v1, target_v2, target_q1, target_q2):
+
+        batch_size = q1.size(0)
+        assert all(x.size(0) == batch_size for x in [q2, v1, v2, target_v1, target_v2, target_q1, target_q2]), \
+        "All inputs must have same batch size"
 
         q1_loss = self.criterion(q1, target_v1)
         q2_loss = self.criterion(q2, target_v2)
@@ -193,18 +222,22 @@ class Reinforce(nn.Module):
             super(Reinforce, self).__init__()
             self.criterion = nn.MSELoss()
 
-        def forward(self, advantage, log_prob):
+        def forward(self, advantage: torch.Tensor, logprobs: torch.Tensor):
             """
-            REINFORCE WITH BASELINE
-            values -> logprob values used to calculate (value) advantage Loss
+            REINFORCE with advantage calculation
+            
+            Args:
+                advantage: Computed advantages from critic [batch_size, 1]
+                logprobs: Log probabilities from policy [batch_size, seq_len]
+            Returns:
+                Combined loss from policy gradient
             """    
-
-            values, log_prob, mask = log_prob
-            advantage_loss = self.criterion((advantage * mask), (values * mask))
-
-            with torch.no_grad():
-                residual_advantage = advantage - values
-
-            pg_loss = -torch.mean(torch.sum(residual_advantage * log_prob * mask, dim=1))
-            loss = torch.sum(advantage_loss, pg_loss)
-            return loss
+            # Ensure proper shapes
+            if advantage.dim() == 1:
+                advantage = advantage.unsqueeze(-1)
+                
+            # Compute policy gradient loss
+            # Sum logprobs across sequence dimension
+            pg_loss = -torch.mean(advantage * logprobs.sum(dim=1))
+            
+            return pg_loss

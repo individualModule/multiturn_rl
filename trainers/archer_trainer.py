@@ -16,14 +16,21 @@ Writing this code for:
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 import torch
+from tqdm import tqdm
+
 from clemcore_multiturn_rl.clemcore.playpen import BasePlayPen, make_env, StepRolloutBuffer, GameRecordCallback, RolloutProgressCallback
 from clemcore_multiturn_rl.clemcore.clemgame import GameRegistry, GameSpec
 from modelling.archer_critic import ArcherAgent, CriticNetwork
 from dataloaders.playpen_dataloader import StepRolloutDataloader
 
 class ArcherPlayPen(BasePlayPen):
-    def __init__(self, learner, teacher):
-        super().__init__(learner, teacher)
+    def __init__(self, learner, teacher, 
+                 critic_optimizer, actor_optimizer,
+                critic_loss, actor_loss, rollout_iterations):
+        
+        super().__init__(learner, teacher, 
+                         critic_optimizer, actor_optimizer, 
+                         critic_loss, actor_loss, rollout_iterations)
         
         # Initialize Archer components
         self.policy = learner  # Your clemcore model
@@ -35,6 +42,7 @@ class ArcherPlayPen(BasePlayPen):
         self.actor_loss = actor_loss
         self.agent = ArcherAgent(self.policy, self.critic, self.target_critic)
         self.rollout_steps = 128
+        self.rollout_iterations = rollout_iterations
         self.add_callback(GameRecordCallback())
         self.add_callback(RolloutProgressCallback(self.rollout_steps))
 
@@ -52,18 +60,17 @@ class ArcherPlayPen(BasePlayPen):
 
 
     def _train(self, buffer, env):
-        # to be changed
-        
+
         # need to be trained in epochs
         # usually we do N epochs, for critic and M for actor (in paper 50 vs 3)
         # they usually do Y sample iterations (2000)
         # they also do warmup rounds with no actor updates
 
-        # in the paper, they don't train on all of the data that is in the buffer.
+        # in the paper, they don't train on all of the data that is in the buffer. - they randomly sample
         # use that as an ablation potentially
 
         # Training loop
-        for iteration in range(...):
+        for iteration in range(self.rollout_iterations):
             # Collect trajectories
             self._collect_rollouts(env, self.rollout_steps, buffer) # use this also to collect eval data
             # Get stored trajectories
