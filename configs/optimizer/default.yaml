@@ -1,9 +1,9 @@
 actor:
   _target_: torch.optim.Adam
-  lr: 3.0e-4
+  lr: 1e-6
   betas: [0.9, 0.999]
 
 critic:
   _target_: torch.optim.Adam
-  lr: 1.0e-3
+  lr: 2e-5
   betas: [0.9, 0.999]

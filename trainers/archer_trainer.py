@@ -27,19 +27,19 @@ from modelling.archer_critic import ArcherAgent, CriticNetwork
 from dataloaders.playpen_dataloader import StepRolloutDataloader
 
 class ArcherPlayPen(BasePlayPen):
-    def __init__(self, learner, teacher, 
+    def __init__(self, learner, teacher, critic, target_critic,
                  critic_optimizer, actor_optimizer,
                  critic_loss, actor_loss, rollout_iterations,
                  cfg: DictConfig):
         
-        super().__init__(learner, teacher, 
+        super().__init__(learner, teacher, critic, target_critic,
                          critic_optimizer, actor_optimizer, 
                          critic_loss, actor_loss, rollout_iterations)
         
         # Initialize Archer components
         self.policy = learner
-        self.critic = hydra.utils.instantiate(cfg.model.critic)
-        self.target_critic = hydra.utils.instantiate(cfg.model.critic)
+        self.critic = critic
+        self.target_critic = target_critic
         self.critic_optimizer = critic_optimizer
         self.actor_optimizer = actor_optimizer
         self.critic_loss = critic_loss

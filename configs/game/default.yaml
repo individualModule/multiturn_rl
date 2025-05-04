@@ -1,9 +1,7 @@
-spec_name: "game_spec_name_here"  # Replace with actual game spec name
+spec_name: "guesswhat"  # Replace with actual game spec name
 
 teacher:
-  _target_: clemcore.backends.Model  # Replace with actual teacher model class
-  model_name: "teacher_model_name"   # Replace with actual model name
+  model_name: "Unsloth-Llama-3-8B"   # Replace with actual model name
   
 learner:
-  _target_: clemcore.backends.Model  # Replace with actual learner model class 
-  model_name: "learner_model_name"   # Replace with actual model name
+  model_name: "Unsloth-Llama-3-8B"   # Replace with actual model name

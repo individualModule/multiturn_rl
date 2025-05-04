@@ -19,11 +19,10 @@ class StepRolloutDataloader(Dataset):
             for i in range(len(trajectory) - 1):  # -1 to handle next_obs
                 current = trajectory[i]
                 next_step = trajectory[i + 1]
-                
                 self.samples.append({
                     'obs': current['context'],
                     'action': current['response'],
-                    'reward': torch.tensor(current['info'].get('reward', 0), dtype=torch.float),
+                    'reward': torch.tensor(current['turn_score'], dtype=torch.float),
                     'next_obs': next_step['context'],
                     'done': torch.tensor(current['done'], dtype=torch.bool)
                 })
