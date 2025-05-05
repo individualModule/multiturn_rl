@@ -4,8 +4,8 @@ import torch
 import os
 
 from trainers.archer_trainer import ArcherPlayPen
-from clemcore_multiturn_rl.clemcore.clemgame.registry import GameRegistry
-from clemcore_multiturn_rl.clemcore.backends.model_registry import ModelRegistry, BackendRegistry
+from clemcore.clemgame.registry import GameRegistry
+from clemcore.backends import ModelRegistry, BackendRegistry
 from modelling.archer_critic import CriticNetwork
 
 
@@ -52,8 +52,10 @@ def initialize_game_and_models(cfg: DictConfig):
     backend_registry = BackendRegistry.from_packaged_and_cwd_files()
 
     # Load learner and teacher model specs
-    learner_spec = model_registry.get_first_model_spec_that_unify_with(cfg.game.learner)
-    teacher_spec = model_registry.get_first_model_spec_that_unify_with(cfg.game.teacher)
+    learner_spec = model_registry.get_first_model_spec_that_unify_with(cfg.game.learner.model_name)
+    print('ls')
+    print(learner_spec)
+    teacher_spec = model_registry.get_first_model_spec_that_unify_with(cfg.game.teacher.model_name)
 
     # Load learner and teacher models
     learner_backend = backend_registry.get_backend_for(learner_spec.backend)
@@ -88,7 +90,7 @@ def main(cfg: DictConfig):
         is_q_critic=True
     )
     critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic, params=critic.parameters())
-    actor_optimizer = hydra.utils.instantiate(cfg.optimizer.actor, params=learner.parameters())
+    actor_optimizer = hydra.utils.instantiate(cfg.optimizer.actor, params=learner.model.parameters())
     critic_loss = hydra.utils.instantiate(cfg.loss.critic)
     actor_loss = hydra.utils.instantiate(cfg.loss.actor)
 
