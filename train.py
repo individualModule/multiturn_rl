@@ -1,13 +1,46 @@
 import hydra
 from omegaconf import DictConfig
 import torch
+import os
+
 from trainers.archer_trainer import ArcherPlayPen
 from clemcore_multiturn_rl.clemcore.clemgame.registry import GameRegistry
 from clemcore_multiturn_rl.clemcore.backends.model_registry import ModelRegistry, BackendRegistry
 from modelling.archer_critic import CriticNetwork
 
-# to be reworked, hydra not doing well
 
+
+def load_checkpoint(checkpoint_path, trainer):
+    """
+    Load a checkpoint and restore the trainer's state.
+
+    Args:
+        checkpoint_path (str): Path to the checkpoint file.
+        trainer (ArcherPlayPen): The trainer instance to restore.
+
+    Returns:
+        int: The iteration to resume training from.
+    """
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
+
+    checkpoint = torch.load(checkpoint_path)
+
+    # Restore model and optimizer states
+    trainer.policy.load_state_dict(checkpoint["policy_state_dict"])
+    trainer.critic.load_state_dict(checkpoint["critic_state_dict"])
+    trainer.target_critic.load_state_dict(checkpoint["target_critic_state_dict"])
+    trainer.critic_optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
+    trainer.actor_optimizer.load_state_dict(checkpoint["actor_optimizer_state_dict"])
+
+    # Restore other parameters
+    trainer.best_metric = checkpoint["best_metric"]
+    trainer.cfg = checkpoint["config"]
+
+    print(f"Checkpoint loaded from {checkpoint_path}, resuming from iteration {checkpoint['iteration']}")
+    return checkpoint["iteration"]
+
+# to be reworked, hydra not doing well
 # don't load teacher if teacher is not needed
 def initialize_game_and_models(cfg: DictConfig):
     """Initialize game registry, model registry, backend registry, and load models."""
@@ -73,6 +106,14 @@ def main(cfg: DictConfig):
         cfg=cfg
     )
     
+
+    # Load checkpoint if specified
+    # checkpoint_path = cfg.get("checkpoint_path", None)
+    # start_iteration = 0
+    # if checkpoint_path and os.path.exists(checkpoint_path):
+    #     start_iteration = load_checkpoint(checkpoint_path, trainer)
+
+
     # Start training
     trainer.learn_interactive(game_registry)
 

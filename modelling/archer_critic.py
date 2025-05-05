@@ -232,6 +232,7 @@ class Reinforce(nn.Module):
             Returns:
                 Combined loss from policy gradient
             """    
+            
             # Ensure proper shapes
             if advantage.dim() == 1:
                 advantage = advantage.unsqueeze(-1)

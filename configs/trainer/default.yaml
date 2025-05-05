@@ -1,7 +1,7 @@
-rollout_steps: 128
-rollout_iterations: 1000
-eval_frequency: 10
-eval_episodes: 10
+rollout_steps: 32
+rollout_iterations: 15
+eval_frequency: 5
+eval_episodes: 2
 critic_epochs: 10
 actor_epochs: 3
 max_grad_norm: 0.5

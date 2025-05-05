@@ -20,6 +20,7 @@ from tqdm import tqdm
 import wandb
 import hydra
 from omegaconf import DictConfig
+import os 
 
 from clemcore_multiturn_rl.clemcore.playpen import BasePlayPen, make_env, StepRolloutBuffer, GameRecordCallback, RolloutProgressCallback
 from clemcore_multiturn_rl.clemcore.clemgame import GameRegistry, GameSpec
@@ -58,6 +59,8 @@ class ArcherPlayPen(BasePlayPen):
         
         self.add_callback(GameRecordCallback())
         self.add_callback(RolloutProgressCallback(self.rollout_steps))
+
+        self.best_metric = float('-inf')
 
         # Initialize wandb with config
         wandb.init(project=cfg.project_name,
@@ -116,6 +119,32 @@ class ArcherPlayPen(BasePlayPen):
         wandb.log(metrics)
         
         return metrics
+    
+    def _save_checkpoint(self, iteration, eval_metrics):
+        """Save training checkpoint if the metric improves."""
+        checkpoint_dir = "checkpoints"
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+        # Use a key metric to determine if this is the best checkpoint
+        current_metric = eval_metrics['eval/average_reward']  # Example: average reward
+        if current_metric > self.best_metric:
+            self.best_metric = current_metric
+            checkpoint_path = os.path.join(checkpoint_dir, f"best_checkpoint.pt")
+            
+            checkpoint = {
+                "iteration": iteration,
+                "policy_state_dict": self.policy.state_dict(),
+                "critic_state_dict": self.critic.state_dict(),
+                "target_critic_state_dict": self.target_critic.state_dict(),
+                "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
+                "actor_optimizer_state_dict": self.actor_optimizer.state_dict(),
+                "config": self.cfg,
+                "best_metric": self.best_metric
+            }
+            
+            torch.save(checkpoint, checkpoint_path)
+            print(f"Best checkpoint saved at {checkpoint_path} with metric: {current_metric:.2f}")
+
 
     def _train(self, buffer, env):
         # Run initial evaluation
@@ -144,7 +173,10 @@ class ArcherPlayPen(BasePlayPen):
                 print(f"Iteration {iteration} evaluation:", 
                       f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
                       f"Success Rate: {eval_metrics['eval/success_rate']:.2%}")
-            
+                
+                # Save checkpoint if evaluation metrics improve
+                self._save_checkpoint(iteration, eval_metrics)
+
             # Get stored trajectories
             dataset = StepRolloutDataloader(buffer.trajectories)
             dataloader = DataLoader(

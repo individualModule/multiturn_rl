@@ -1,6 +1,2 @@
 critic:
   hidden_dims: [512, 512]
-  input_dim: 512  # Add input dimension
-  output_dim: 1   # Add output dimension
-  activation: relu
-  dropout: 0.1
