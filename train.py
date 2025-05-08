@@ -6,7 +6,8 @@ import os
 from trainers.archer_trainer import ArcherPlayPen
 from clemcore.clemgame.registry import GameRegistry
 from clemcore.backends import ModelRegistry, BackendRegistry
-from modelling.archer_critic import CriticNetwork
+from clemcore.backends import ModelSpec
+from modelling.archer_critic import DoubleCritic
 
 
 
@@ -51,20 +52,22 @@ def initialize_game_and_models(cfg: DictConfig):
     model_registry = ModelRegistry.from_packaged_and_cwd_files()
     backend_registry = BackendRegistry.from_packaged_and_cwd_files()
 
+    # get model specs
+    learner_spec = ModelSpec.from_string(cfg.game.learner.model_name)
+    teacher_spec = ModelSpec.from_string(cfg.game.teacher.model_name)
+
     # Load learner and teacher model specs
-    learner_spec = model_registry.get_first_model_spec_that_unify_with(cfg.game.learner.model_name)
-    print('ls')
-    print(learner_spec)
-    teacher_spec = model_registry.get_first_model_spec_that_unify_with(cfg.game.teacher.model_name)
+    learner_spec = model_registry.get_first_model_spec_that_unify_with(learner_spec)
+    teacher_spec = model_registry.get_first_model_spec_that_unify_with(teacher_spec)
 
     # Load learner and teacher models
     learner_backend = backend_registry.get_backend_for(learner_spec.backend)
     learner = learner_backend.get_model_for(learner_spec)
-    learner.set_gen_args(max_tokens=100, temperature=0.0)
+    learner.set_gen_args(temperature = cfg.game.learner.temperature, max_tokens=cfg.game.learner.max_tokens)
 
     teacher_backend = backend_registry.get_backend_for(teacher_spec.backend)
     teacher = teacher_backend.get_model_for(teacher_spec)
-    teacher.set_gen_args(max_tokens=100, temperature=0.0)
+    teacher.set_gen_args(temperature = cfg.game.teacher.temperature, max_tokens=cfg.game.teacher.max_tokens)
 
     return game_registry, learner, teacher
 
@@ -79,16 +82,17 @@ def main(cfg: DictConfig):
     game_registry, learner, teacher = initialize_game_and_models(cfg)
 
     # Initialize components
-    critic = CriticNetwork(
+    critic = DoubleCritic(
         in_dim=cfg.model.critic.hidden_dims[0],
         out_dim=1,
-        is_q_critic=True
+        critic_lm=cfg.model.critic.critic_lm
     )
-    target_critic = CriticNetwork(
+    target_critic = DoubleCritic(
         in_dim=cfg.model.critic.hidden_dims[0],
         out_dim=1,
-        is_q_critic=True
+        critic_lm=cfg.model.critic.critic_lm
     )
+
     critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic, params=critic.parameters())
     actor_optimizer = hydra.utils.instantiate(cfg.optimizer.actor, params=learner.model.parameters())
     critic_loss = hydra.utils.instantiate(cfg.loss.critic)
