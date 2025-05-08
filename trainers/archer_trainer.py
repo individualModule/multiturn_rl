@@ -25,7 +25,7 @@ import os
 from clemcore.playpen import BasePlayPen, make_env, StepRolloutBuffer, GameRecordCallback, RolloutProgressCallback
 from clemcore.clemgame import GameRegistry, GameSpec
 from modelling.archer_critic import ArcherAgent, CriticNetwork
-from dataloaders.playpen_dataloader import StepRolloutDataloader
+from dataloaders.playpen_dataloader import StepRolloutDataset, custom_collate_fn
 
 class ArcherPlayPen(BasePlayPen):
     def __init__(self, learner, teacher, critic, target_critic,
@@ -47,6 +47,9 @@ class ArcherPlayPen(BasePlayPen):
         self.cfg = cfg  # Fix: Assign cfg to self.cfg
 
         # Load parameters from config
+        self.critic_epochs = cfg.trainer.critic_epochs
+        self.actor_epochs = cfg.trainer.actor_epochs
+
         self.rollout_steps = self.cfg.trainer.rollout_steps
         self.rollout_iterations = self.cfg.trainer.rollout_iterations
         self.eval_frequency = self.cfg.trainer.eval_frequency
@@ -78,7 +81,21 @@ class ArcherPlayPen(BasePlayPen):
             # buffer.reset()
 
     def _evaluate_policy(self, env, current_iteration=None):
-        """Run evaluation episodes and return metrics."""
+        """Run evaluation episodes and return metrics.
+        
+        Does not work, has to be rewritten.
+        
+        """
+        metrics = {
+            'eval/average_reward': 0,
+            'eval/success_rate': 0,
+            'eval/min_reward': 0,
+            'eval/max_reward': 0
+        }
+        return metrics
+
+        # 
+
         total_rewards = []
         success_count = 0
         
@@ -132,7 +149,7 @@ class ArcherPlayPen(BasePlayPen):
             
             checkpoint = {
                 "iteration": iteration,
-                "policy_state_dict": self.policy.state_dict(),
+                "policy_state_dict": self.policy.model.state_dict(),
                 "critic_state_dict": self.critic.state_dict(),
                 "target_critic_state_dict": self.target_critic.state_dict(),
                 "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
@@ -165,7 +182,7 @@ class ArcherPlayPen(BasePlayPen):
         for iteration in range(self.rollout_iterations):
             # Collect trajectories
             self._collect_rollouts(env, self.rollout_steps, buffer) # use this also to collect eval data
-            
+            # print(buffer.trajectories)
             # Run evaluation if it's time
             if iteration % self.eval_frequency == 0:
                 eval_metrics = self._evaluate_policy(env, current_iteration=iteration)
@@ -177,12 +194,13 @@ class ArcherPlayPen(BasePlayPen):
                 self._save_checkpoint(iteration, eval_metrics)
 
             # Get stored trajectories
-            dataset = StepRolloutDataloader(buffer.trajectories)
+            dataset = StepRolloutDataset(buffer.trajectories)
             dataloader = DataLoader(
                                     dataset,
                                     batch_size=self.batch_size,
                                     shuffle=True,
-                                    num_workers=self.num_workers
+                                    num_workers=self.num_workers,
+                                    collate_fn=custom_collate_fn
                                 )
 
             critic_metrics = self._update_critic(self.critic_epochs, dataloader)
@@ -207,10 +225,12 @@ class ArcherPlayPen(BasePlayPen):
             
             for batch in tqdm(dataloader):
                 self.critic_optimizer.zero_grad()
+                print(batch['obs'])
+                print(f"obs type: {type(batch['obs'])}")
 
-                q1, q2, v1, v2 = self.agent.get_critic_values(batch['observation'], batch['action'])
-                target_q1, target_q2 = self.agent.compute_target_q(batch['observation'])
-                target_v1, target_v2 = self.agent.compute_target_v(batch['next_observation'],
+                q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], batch['action'])
+                target_q1, target_q2 = self.agent.compute_target_q(batch['obs'])
+                target_v1, target_v2 = self.agent.compute_target_v(batch['next_obs'],
                                                                    batch['action'],
                                                                    batch['reward'],
                                                                    batch['done'])
@@ -252,12 +272,11 @@ class ArcherPlayPen(BasePlayPen):
         for e in range(actor_epochs):
             epoch_loss = 0
             num_batches = 0
-            
             for batch in tqdm(dataloader):
                 self.actor_optimizer.zero_grad()
-
-                pi_action = self.agent.get_policy_action(batch['observation'])
-                q1, q2, v1, v2 = self.agent.get_critic_values(batch['observation'], pi_action)
+                
+                pi_action = self.agent.get_policy_action(batch['obs'])
+                q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action)
                 
                 #take minumum of q and minimum of v
                 q = torch.minimum(q1, q2)
@@ -265,7 +284,7 @@ class ArcherPlayPen(BasePlayPen):
 
                 advantages = self.agent.compute_advantages(q, v)
 
-                logprobs = self.agent.get_log_prob(batch['observation'],
+                logprobs = self.agent.get_log_prob(batch['obs'],
                                                    pi_action)
                 
                 loss = self.actor_loss(advantages, logprobs)

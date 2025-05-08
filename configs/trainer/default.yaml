@@ -6,5 +6,5 @@ critic_epochs: 10
 actor_epochs: 3
 max_grad_norm: 0.5
 tau: 0.005
-batch_size: 32
+batch_size: 1
 num_workers: 4
