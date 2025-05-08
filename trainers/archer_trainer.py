@@ -91,7 +91,7 @@ class ArcherPlayPen(BasePlayPen):
                 
                 while not done:
                     # Get action from policy (without exploration noise)
-                    action = self.agent.get_policy_action(obs, deterministic=True)
+                    action = self.agent.get_policy_action(obs)
                     
                     # Step environment
                     obs, reward, done, info = env.step(action)

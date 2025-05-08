@@ -114,7 +114,7 @@ class ArcherAgent(nn.Module):
         responses = []
         for msg in messages:
             # Player.__call__ internally calls model.generate_response
-            _, _, response_text = self.policy([msg])
+            _, _, response_text = self.policy.generate_response([msg])
             responses.append(response_text)
             
         return responses if len(responses) > 1 else responses[0]
@@ -133,7 +133,7 @@ class ArcherAgent(nn.Module):
         Get logprob of the generated sequence using the model's calculate_logprobs
         """
         # The underlying HuggingFace model is accessed through player.model
-        return self.policy.get_logprobs(observation, action)    
+        return self.policy.calculate_logprobs(observation, action)    
 
     def compute_target_q(self, observation):
         """
