@@ -78,6 +78,11 @@ def main(cfg: DictConfig):
     if torch.cuda.is_available():
         torch.cuda.manual_seed(cfg.seed)
     
+
+
+    # Detect device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     # Initialize game registry and models
     game_registry, learner, teacher = initialize_game_and_models(cfg)
 
@@ -85,12 +90,14 @@ def main(cfg: DictConfig):
     critic = DoubleCritic(
         in_dim=cfg.model.critic.hidden_dims[0],
         out_dim=1,
-        critic_lm=cfg.model.critic.critic_lm
+        critic_lm=cfg.model.critic.critic_lm,
+        device=device
     )
     target_critic = DoubleCritic(
         in_dim=cfg.model.critic.hidden_dims[0],
         out_dim=1,
-        critic_lm=cfg.model.critic.critic_lm
+        critic_lm=cfg.model.critic.critic_lm,
+        device=device
     )
 
     critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic, params=critic.parameters())

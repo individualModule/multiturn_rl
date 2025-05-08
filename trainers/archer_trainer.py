@@ -22,8 +22,8 @@ import hydra
 from omegaconf import DictConfig
 import os 
 
-from clemcore_multiturn_rl.clemcore.playpen import BasePlayPen, make_env, StepRolloutBuffer, GameRecordCallback, RolloutProgressCallback
-from clemcore_multiturn_rl.clemcore.clemgame import GameRegistry, GameSpec
+from clemcore.playpen import BasePlayPen, make_env, StepRolloutBuffer, GameRecordCallback, RolloutProgressCallback
+from clemcore.clemgame import GameRegistry, GameSpec
 from modelling.archer_critic import ArcherAgent, CriticNetwork
 from dataloaders.playpen_dataloader import StepRolloutDataloader
 
@@ -33,9 +33,7 @@ class ArcherPlayPen(BasePlayPen):
                  critic_loss, actor_loss, rollout_iterations,
                  cfg: DictConfig):
         
-        super().__init__(learner, teacher, critic, target_critic,
-                         critic_optimizer, actor_optimizer, 
-                         critic_loss, actor_loss, rollout_iterations)
+        super().__init__(learner, teacher)
         
         # Initialize Archer components
         self.policy = learner
@@ -46,16 +44,17 @@ class ArcherPlayPen(BasePlayPen):
         self.critic_loss = critic_loss
         self.actor_loss = actor_loss
         self.agent = ArcherAgent(self.policy, self.critic, self.target_critic)
-        
+        self.cfg = cfg  # Fix: Assign cfg to self.cfg
+
         # Load parameters from config
-        self.rollout_steps = cfg.trainer.rollout_steps
-        self.rollout_iterations = cfg.trainer.rollout_iterations
-        self.eval_frequency = cfg.trainer.eval_frequency
-        self.eval_episodes = cfg.trainer.eval_episodes
-        self.batch_size = cfg.trainer.batch_size
-        self.num_workers = cfg.trainer.num_workers
-        self.max_grad_norm = cfg.trainer.max_grad_norm
-        self.tau = cfg.trainer.tau
+        self.rollout_steps = self.cfg.trainer.rollout_steps
+        self.rollout_iterations = self.cfg.trainer.rollout_iterations
+        self.eval_frequency = self.cfg.trainer.eval_frequency
+        self.eval_episodes = self.cfg.trainer.eval_episodes
+        self.batch_size = self.cfg.trainer.batch_size
+        self.num_workers = self.cfg.trainer.num_workers
+        self.max_grad_norm = self.cfg.trainer.max_grad_norm
+        self.tau = self.cfg.trainer.tau
         
         self.add_callback(GameRecordCallback())
         self.add_callback(RolloutProgressCallback(self.rollout_steps))
@@ -63,8 +62,8 @@ class ArcherPlayPen(BasePlayPen):
         self.best_metric = float('-inf')
 
         # Initialize wandb with config
-        wandb.init(project=cfg.project_name,
-                  config=dict(cfg))
+        wandb.init(project=self.cfg.project_name,
+                  config=dict(self.cfg))
 
     def learn_interactive(self, game_registry: GameRegistry):
         # Select game spec you want to train on
