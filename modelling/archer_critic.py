@@ -46,13 +46,13 @@ class CriticNetwork(nn.Module):
 
 class DoubleCritic(nn.Module):
     
-    def __init__(self, device, critic_lm, cache_dir, in_dim, out_dim):
+    def __init__(self, device, critic_lm, in_dim, out_dim):
         super().__init__()
         self.device = device
 
         # Base LM
-        self.base_lm = AutoModel.from_pretrained(critic_lm, cache_dir=cache_dir).to(device)
-        self.base_tokenizer = AutoTokenizer.from_pretrained(critic_lm, cache_dir=cache_dir)
+        self.base_lm = AutoModel.from_pretrained(critic_lm).to(device)
+        self.base_tokenizer = AutoTokenizer.from_pretrained(critic_lm)
         self.base_tokenizer.truncation_side = 'left'
         
         # Q-Critics (take state-action pairs)
