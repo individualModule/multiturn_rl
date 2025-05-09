@@ -9,3 +9,4 @@ learner:
   model_name: "Unsloth-Llama-3-8B"   # Replace with actual model name
   max_tokens: 300
   temperature: 0.3
+  name: "Guesser"

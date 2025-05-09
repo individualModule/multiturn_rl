@@ -22,12 +22,12 @@ import hydra
 from omegaconf import DictConfig
 import os 
 
-from clemcore.playpen import BasePlayPen, make_env, StepRolloutBuffer, GameRecordCallback, RolloutProgressCallback
+from clemcore.playpen import BasePlayPenMultiturn, make_env, StepRolloutBuffer, GameRecordCallback, RolloutProgressCallback
 from clemcore.clemgame import GameRegistry, GameSpec
 from modelling.archer_critic import ArcherAgent, CriticNetwork
 from dataloaders.playpen_dataloader import StepRolloutDataset, custom_collate_fn
 
-class ArcherPlayPen(BasePlayPen):
+class ArcherPlayPen(BasePlayPenMultiturn):
     def __init__(self, learner, teacher, critic, target_critic,
                  critic_optimizer, actor_optimizer,
                  critic_loss, actor_loss, rollout_iterations,
@@ -50,6 +50,7 @@ class ArcherPlayPen(BasePlayPen):
         self.critic_epochs = cfg.trainer.critic_epochs
         self.actor_epochs = cfg.trainer.actor_epochs
 
+        self.forPlayer = self.cfg.game.learner.name
         self.rollout_steps = self.cfg.trainer.rollout_steps
         self.rollout_iterations = self.cfg.trainer.rollout_iterations
         self.eval_frequency = self.cfg.trainer.eval_frequency
@@ -181,8 +182,12 @@ class ArcherPlayPen(BasePlayPen):
         # Training loop
         for iteration in range(self.rollout_iterations):
             # Collect trajectories
-            self._collect_rollouts(env, self.rollout_steps, buffer) # use this also to collect eval data
-            # print(buffer.trajectories)
+            self._collect_rollouts(game_env = env,
+                                   rollout_steps = self.rollout_steps,
+                                   rollout_buffer = buffer,
+                                   forPlayer = self.forPlayer ) # use this also to collect eval data
+            print(buffer.trajectories)
+            break
             # Run evaluation if it's time
             if iteration % self.eval_frequency == 0:
                 eval_metrics = self._evaluate_policy(env, current_iteration=iteration)
