@@ -186,8 +186,6 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                                    rollout_steps = self.rollout_steps,
                                    rollout_buffer = buffer,
                                    forPlayer = self.forPlayer ) # use this also to collect eval data
-            print(buffer.trajectories)
-            break
             # Run evaluation if it's time
             if iteration % self.eval_frequency == 0:
                 eval_metrics = self._evaluate_policy(env, current_iteration=iteration)
