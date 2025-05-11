@@ -14,9 +14,11 @@ class StepRolloutDataset(Dataset):
     individual observations without the entire trajectory. We want to break linearity in training 
     and stop models from overfitting on sequences.
     """
-    def __init__(self, trajectories):
+    def __init__(self, trajectories: list[dict[str, dict]]):
         self.samples = []
         # Flatten trajectories into individual transition samples
+
+        # context returns a list of previous interactions (each interaction is a dict)}
         for trajectory in trajectories:
             for i in range(len(trajectory) - 1):  # -1 to handle next_obs
                 current = trajectory[i]
@@ -53,6 +55,7 @@ class StepRolloutDatasetV3(Dataset):
             for i in range(len(trajectory) - 1):  # -1 to handle next_obs
                 current = trajectory[i]
                 next_step = trajectory[i + 1]
+
                 self.samples.append({
                     'obs': current['context'],
                     'action': current['response'],
@@ -73,10 +76,10 @@ def custom_collate_fn(batch):
     """
     Custom collate function to handle batching of samples.
     """
-    obs = [item['obs'] for item in batch]
-    actions = [item['action'] for item in batch]
-    rewards = torch.stack([item['reward'] for item in batch])
-    next_obs = [item['next_obs'] for item in batch]
+    obs: list[list[dict[str, str]]] = [item['obs'] for item in batch]
+    actions: list[list[dict[str, str]]] = [item['action'] for item in batch]
+    rewards: list[int] = torch.stack([item['reward'] for item in batch])
+    next_obs: list[dict[str, str]] = [item['next_obs'] for item in batch]
     dones = torch.stack([item['done'] for item in batch])
     
     return {

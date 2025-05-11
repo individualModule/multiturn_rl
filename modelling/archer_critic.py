@@ -11,6 +11,7 @@ Need to make sure everything is on the same device.
 need to make sure the shapes are all in order
 
 """
+from typing import List, Union, Tuple
 
 import torch
 import transformers
@@ -54,7 +55,7 @@ class DoubleCritic(nn.Module):
         self.base_lm = AutoModel.from_pretrained(critic_lm).to(device)
         self.base_tokenizer = AutoTokenizer.from_pretrained(critic_lm)
         self.base_tokenizer.truncation_side = 'left'
-        
+
         # Q-Critics (take state-action pairs)
         self.critic1 = CriticNetwork(in_dim, out_dim, is_q_critic=True).to(device)
         self.critic2 = CriticNetwork(in_dim, out_dim, is_q_critic=True).to(device)
@@ -63,11 +64,33 @@ class DoubleCritic(nn.Module):
         self.v_critic1 = CriticNetwork(in_dim, out_dim, is_q_critic=False).to(device)
         self.v_critic2 = CriticNetwork(in_dim, out_dim, is_q_critic=False).to(device)
 
-    def forward(self, observation, action, detach_model=False):
+
+    def flatten_chat(messages: Union[list[dict], list[list[dict]]]) -> str:
+
+        def _flatten_single(chat: List[dict]) -> str:
+            return "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in chat])
+        
+
+        # If input is a single conversation (list of dicts)
+        if isinstance(messages[0], dict):
+            return [_flatten_single(messages)]  # wrap in list for consistency
+        # If input is a batch of conversations
+        elif isinstance(messages[0], list):
+            return [_flatten_single(conv) for conv in messages]
+        else:
+            raise ValueError("Invalid input format for flatten_chat.")
+
+    def forward(self, observation: list[list[dict]], action: list[list[dict]], detach_model=False):
         # Get embeddings
-        obs_ids = self.base_tokenizer(observation, padding=True, return_tensors='pt', 
+        
+        flat_obs = self.flatten_chat(observation)
+        flat_action = self.flatten_chat(action)
+
+        assert len(flat_obs) == flat_action, "batch sizes not equal!"
+
+        obs_ids = self.base_tokenizer(flat_obs, padding=True, return_tensors='pt', 
                                     max_length=512, truncation=True).to(self.device)
-        action_ids = self.base_tokenizer(action, padding=True, return_tensors='pt', 
+        action_ids = self.base_tokenizer(flat_action, padding=True, return_tensors='pt', 
                                        max_length=512, truncation=True).to(self.device)
         
         # Get state and action representations
@@ -102,25 +125,35 @@ class ArcherAgent(nn.Module):
         self.critic = critic
         self.target_critic = target_critic
         
+    def convert_to_response_dict(self, response: str) -> dict[str, str]:
 
-    def get_policy_action(self, observation):
+        return {
+            "role": "assistant",
+            "content": response
+        }
+
+    def get_policy_action(self, observations: List[List[dict]]) -> List[List[dict]]:
         """
         Sample the action from the policy using the Player class's generate_response
+        return the response in the appropriate format:
+                            {"role": "assistant",
+                             "content": response}
+
+        return list[list[dict]] for consistency. Same shape as actions and obs
+
         """
-        # Convert observation to message format expected by Player
-        messages = [{"role": "user", "content": obs} for obs in observation] if isinstance(observation, list) else [{"role": "user", "content": observation}]
-        
         # Generate responses using the Player
         responses = []
-        for msg in messages:
+        for msg in observations:
             # Player.__call__ internally calls model.generate_response
-            _, _, response_text = self.policy.generate_response([msg])
-            responses.append(response_text)
+            _, _, response_text = self.policy.generate_response(msg)
+            response_dict = self.convert_to_response_dict(response_text)
+            responses.append([response_dict])
             
-        return responses if len(responses) > 1 else responses[0]
+        return responses
 
 
-    def get_critic_values(self, observation, action):
+    def get_critic_values(self, observation: List[List[dict]], action: List[List[dict]]):
         """
         Get Q and V values from the critic 
         """
@@ -128,14 +161,14 @@ class ArcherAgent(nn.Module):
 
         return self.critic(observation, action)
 
-    def get_log_prob(self, observation, action):
+    def get_log_prob(self, observation: List[List[dict]], action: List[List[dict]]) -> torch.Tensor:
         """
         Get logprob of the generated sequence using the model's calculate_logprobs
         """
         # The underlying HuggingFace model is accessed through player.model
-        return self.policy.calculate_logprobs(observation, action)    
+        return self.policy.calculate_logprobs(observation, action)
 
-    def compute_target_q(self, observation):
+    def compute_target_q(self, observation: List[List[dict]]):
         """
         Compute target Q values using the policy generated from the sample.
         """
@@ -149,7 +182,7 @@ class ArcherAgent(nn.Module):
 
         return target_q1, target_q2
     
-    def compute_target_v(self, next_observation, action, reward, done):
+    def compute_target_v(self, next_observation: List[List[dict]], action: List[List[dict]], reward: torch.Tensor, done: torch.Tensor):
         """
         Compute target V values using the  next observation (next state). 
         Action is not really used here - but needs to be passed because
