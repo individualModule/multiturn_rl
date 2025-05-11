@@ -65,7 +65,7 @@ class DoubleCritic(nn.Module):
         self.v_critic2 = CriticNetwork(in_dim, out_dim, is_q_critic=False).to(device)
 
 
-    def flatten_chat(messages: Union[list[dict], list[list[dict]]]) -> str:
+    def flatten_chat(self, messages: Union[list[dict], list[list[dict]]]) -> str:
 
         def _flatten_single(chat: List[dict]) -> str:
             return "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in chat])
@@ -86,7 +86,7 @@ class DoubleCritic(nn.Module):
         flat_obs = self.flatten_chat(observation)
         flat_action = self.flatten_chat(action)
 
-        assert len(flat_obs) == flat_action, "batch sizes not equal!"
+        assert len(flat_obs) == len(flat_action), "batch sizes not equal!"
 
         obs_ids = self.base_tokenizer(flat_obs, padding=True, return_tensors='pt', 
                                     max_length=512, truncation=True).to(self.device)
@@ -119,11 +119,12 @@ class ArcherAgent(nn.Module):
     Contains the fns to interact with the policy, critics, obtain targets, etc.
     """
 
-    def __init__(self, policy, critic, target_critic):
+    def __init__(self, policy, critic, target_critic, gamma=0.99):
         super().__init__()
         self.policy = policy
         self.critic = critic
         self.target_critic = target_critic
+        self.gamma = gamma
         
     def convert_to_response_dict(self, response: str) -> dict[str, str]:
 
@@ -197,6 +198,7 @@ class ArcherAgent(nn.Module):
             if done.dim() == 1:
                 done = done.unsqueeze(-1)
 
+            done = done.float()  # Convert to float for multiplication
             _, _ , target_v1, target_v2 = self.target_critic(next_observation, copy.deepcopy(action))
             target_v1 = reward + (1 - done)*target_v1*self.gamma
             target_v2 = reward + (1 - done)*target_v2*self.gamma
@@ -218,7 +220,7 @@ class ArcherAgent(nn.Module):
             target_param.data.copy_(tau * source_param.data + (1.0 - tau) * target_param.data)
 
 
-    def compute_advantages(rewards: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
+    def compute_advantages(self, rewards: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
         """Computes the advantage as the difference between reward and value estimate."""
 
         if rewards.dim() == 1:

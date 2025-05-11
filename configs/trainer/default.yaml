@@ -1,10 +1,11 @@
-rollout_steps: 32
-rollout_iterations: 15
+rollout_steps: 6
+rollout_iterations: 3
 eval_frequency: 5
 eval_episodes: 2
-critic_epochs: 10
-actor_epochs: 3
+critic_epochs: 3
+actor_epochs: 1
 max_grad_norm: 0.5
 tau: 0.005
 batch_size: 1
 num_workers: 4
+gamma: 0.99

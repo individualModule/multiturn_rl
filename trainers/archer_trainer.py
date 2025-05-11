@@ -34,7 +34,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                  cfg: DictConfig):
         
         super().__init__(learner, teacher)
-        
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         # Initialize Archer components
         self.policy = learner
         self.critic = critic
@@ -43,12 +44,12 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         self.actor_optimizer = actor_optimizer
         self.critic_loss = critic_loss
         self.actor_loss = actor_loss
-        self.agent = ArcherAgent(self.policy, self.critic, self.target_critic)
         self.cfg = cfg  # Fix: Assign cfg to self.cfg
+        self.agent = ArcherAgent(self.policy, self.critic, self.target_critic, self.cfg.trainer.gamma)
 
         # Load parameters from config
-        self.critic_epochs = cfg.trainer.critic_epochs
-        self.actor_epochs = cfg.trainer.actor_epochs
+        self.critic_epochs = self.cfg.trainer.critic_epochs
+        self.actor_epochs = self.cfg.trainer.actor_epochs
 
         self.forPlayer = self.cfg.game.learner.name
         self.rollout_steps = self.cfg.trainer.rollout_steps
@@ -227,9 +228,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
             num_batches = 0
             
             for batch in tqdm(dataloader):
+                batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
                 self.critic_optimizer.zero_grad()
-                print(batch['obs'])
-                print(f"obs type: {type(batch['obs'])}")
 
                 q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], batch['action'])
                 target_q1, target_q2 = self.agent.compute_target_q(batch['obs'])
@@ -276,6 +276,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
             epoch_loss = 0
             num_batches = 0
             for batch in tqdm(dataloader):
+                batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
+
                 self.actor_optimizer.zero_grad()
                 
                 pi_action = self.agent.get_policy_action(batch['obs'])
@@ -283,7 +285,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                 
                 #take minumum of q and minimum of v
                 q = torch.minimum(q1, q2)
-                v = torch.minumum(v1, v2)
+                v = torch.minimum(v1, v2)
 
                 advantages = self.agent.compute_advantages(q, v)
 
@@ -293,7 +295,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                 loss = self.actor_loss(advantages, logprobs)
                 loss.backward()
 
-                clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
+                clip_grad_norm_(self.policy.model.parameters(), self.max_grad_norm)
                 self.actor_optimizer.step()
                 
                 # Log batch metrics
