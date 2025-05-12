@@ -35,6 +35,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         
         super().__init__(learner, teacher)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.game_spec = None
 
         # Initialize Archer components
         self.policy = learner
@@ -46,7 +47,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         self.actor_loss = actor_loss
         self.cfg = cfg  # Fix: Assign cfg to self.cfg
         self.agent = ArcherAgent(self.policy, self.critic, self.target_critic, self.cfg.trainer.gamma)
-
+        
         # Load parameters from config
         self.critic_epochs = self.cfg.trainer.critic_epochs
         self.actor_epochs = self.cfg.trainer.actor_epochs
@@ -54,6 +55,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         self.forPlayer = self.cfg.game.learner.name
         self.rollout_steps = self.cfg.trainer.rollout_steps
         self.rollout_iterations = self.cfg.trainer.rollout_iterations
+        self.eval_instances = self.cfg.trainer.eval_instances
+        self.eval_rollout_steps = self.cfg.trainer.eval_rollout_steps
         self.eval_frequency = self.cfg.trainer.eval_frequency
         self.eval_episodes = self.cfg.trainer.eval_episodes
         self.batch_size = self.cfg.trainer.batch_size
@@ -72,71 +75,68 @@ class ArcherPlayPen(BasePlayPenMultiturn):
 
     def learn_interactive(self, game_registry: GameRegistry):
         # Select game spec you want to train on
-        game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
+        self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
         
         # Create environment and buffer
-        with make_env(game_spec, [self.learner, self.teacher]) as env:
+        with make_env(self.game_spec, [self.learner, self.teacher]) as env:
             buffer = StepRolloutBuffer(env)
 
             # self._collect_rollouts(env, self.rollout_steps, buffer) 
             self._train(buffer, env)
             # buffer.reset()
 
-    def _evaluate_policy(self, env, current_iteration=None):
-        """Run evaluation episodes and return metrics.
-        
-        Does not work, has to be rewritten.
-        
-        """
-        metrics = {
-            'eval/average_reward': 0,
-            'eval/success_rate': 0,
-            'eval/min_reward': 0,
-            'eval/max_reward': 0
-        }
-        return metrics
+    def _evaluate_policy(self, current_iteration=None):
+        with make_env(self.game_spec, [self.learner, self.teacher], instances_name=self.eval_instances) as eval_env:
+            eval_buffer = StepRolloutBuffer(eval_env)
 
-        # 
+            # Collect rollouts for evaluation
+            self._collect_rollouts(
+                game_env=eval_env,
+                rollout_steps=self.eval_rollout_steps,
+                rollout_buffer=eval_buffer,
+                forPlayer=self.forPlayer
+            )
 
-        total_rewards = []
-        success_count = 0
-        
-        # Disable gradients for evaluation
-        with torch.no_grad():
-            for _ in range(self.eval_episodes):
-                episode_reward = 0
-                obs = env.reset()
-                done = False
-                
-                while not done:
-                    # Get action from policy (without exploration noise)
-                    action = self.agent.get_policy_action(obs)
-                    
-                    # Step environment
-                    obs, reward, done, info = env.step(action)
-                    episode_reward += reward
-                    
-                    # Track success based on environment info
-                    if done and info.get('success', False):
-                        success_count += 1
-                
-                total_rewards.append(episode_reward)
-        
-        # Compute metrics
+        eval_trajectories = eval_buffer.trajectories
+
+        # Initialize metrics
+        total_episode_scores = []
+        total_response_scores = []
+        min_episode_score = float('inf')
+        max_episode_score = float('-inf')
+
+        # Process each trajectory
+        for trajectory in eval_trajectories:
+            episode_score = 0
+            for step in trajectory:
+                # Accumulate response scores for turn-level rewards
+                response_score = step['info'].get('response_score', 0)
+                total_response_scores.append(response_score)
+
+                # Update episode score if available
+                episode_score = step['info'].get('episode_score', episode_score)
+
+            # Track episode-level metrics
+            total_episode_scores.append(episode_score)
+            min_episode_score = min(min_episode_score, episode_score)
+            max_episode_score = max(max_episode_score, episode_score)
+
+        # Calculate metrics
         metrics = {
-            'eval/average_reward': sum(total_rewards) / len(total_rewards),
-            'eval/success_rate': success_count / self.eval_episodes,
-            'eval/min_reward': min(total_rewards),
-            'eval/max_reward': max(total_rewards)
+            'eval/average_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
+            'eval/average_turn_reward': sum(total_response_scores) / len(total_response_scores) if total_response_scores else 0,
+            'eval/min_reward': min_episode_score if total_episode_scores else 0,
+            'eval/max_reward': max_episode_score if total_episode_scores else 0
         }
-        
+
         if current_iteration is not None:
             metrics['iteration'] = current_iteration
-            
-        # Log to wandb
+
+        # Log metrics to wandb
         wandb.log(metrics)
-        
+
         return metrics
+
     
     def _save_checkpoint(self, iteration, eval_metrics):
         """Save training checkpoint if the metric improves."""
@@ -170,7 +170,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         eval_metrics = self._evaluate_policy(env, current_iteration=0)
         print(f"Initial evaluation:", 
               f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
-              f"Success Rate: {eval_metrics['eval/success_rate']:.2%}")
+              f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2%}")
 
         # need to be trained in epochs
         # usually we do N epochs, for critic and M for actor (in paper 50 vs 3)

@@ -9,3 +9,5 @@ tau: 0.005
 batch_size: 1
 num_workers: 4
 gamma: 0.99
+eval_instances: "test_instances.json"
+eval_rollout_steps: 6
