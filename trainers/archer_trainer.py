@@ -167,7 +167,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
     def _train(self, buffer, env):
         # Run initial evaluation
         print("Running initial evaluation...")
-        eval_metrics = self._evaluate_policy(env, current_iteration=0)
+        eval_metrics = self._evaluate_policy(current_iteration=0)
         print(f"Initial evaluation:", 
               f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
               f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2%}")
@@ -189,10 +189,10 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                                    forPlayer = self.forPlayer ) # use this also to collect eval data
             # Run evaluation if it's time
             if iteration % self.eval_frequency == 0:
-                eval_metrics = self._evaluate_policy(env, current_iteration=iteration)
-                print(f"Iteration {iteration} evaluation:", 
-                      f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
-                      f"Success Rate: {eval_metrics['eval/success_rate']:.2%}")
+                eval_metrics = self._evaluate_policy(current_iteration=iteration)
+                print(f"Initial evaluation:", 
+                    f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
+                    f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2%}")
                 
                 # Save checkpoint if evaluation metrics improve
                 self._save_checkpoint(iteration, eval_metrics)
