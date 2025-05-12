@@ -1,6 +1,6 @@
 rollout_steps: 128
 rollout_iterations: 1000
-eval_frequency: 5
+eval_frequency: 50
 eval_episodes: 2
 critic_epochs: 50
 actor_epochs: 3

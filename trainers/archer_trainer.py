@@ -170,7 +170,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         eval_metrics = self._evaluate_policy(current_iteration=0)
         print(f"Initial evaluation:", 
               f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
-              f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2%}")
+              f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}")
 
         # need to be trained in epochs
         # usually we do N epochs, for critic and M for actor (in paper 50 vs 3)
@@ -192,7 +192,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                 eval_metrics = self._evaluate_policy(current_iteration=iteration)
                 print(f"Initial evaluation:", 
                     f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
-                    f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2%}")
+                    f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}")
                 
                 # Save checkpoint if evaluation metrics improve
                 self._save_checkpoint(iteration, eval_metrics)
