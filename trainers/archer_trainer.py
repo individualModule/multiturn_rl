@@ -100,6 +100,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         eval_trajectories = eval_buffer.trajectories
 
         # Initialize metrics
+
         total_episode_scores = []
         total_response_scores = []
         min_episode_score = float('inf')
@@ -108,6 +109,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         # Process each trajectory
         for trajectory in eval_trajectories:
             episode_score = 0
+
             for step in trajectory:
                 # Accumulate response scores for turn-level rewards
                 response_score = step['info'].get('response_score', 0)
@@ -167,10 +169,10 @@ class ArcherPlayPen(BasePlayPenMultiturn):
     def _train(self, buffer, env):
         # Run initial evaluation
         print("Running initial evaluation...")
-        eval_metrics = self._evaluate_policy(current_iteration=0)
-        print(f"Initial evaluation:", 
-              f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
-              f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}")
+        # eval_metrics = self._evaluate_policy(current_iteration=0)
+        # print(f"Initial evaluation:", 
+        #       f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
+        #       f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}")
 
         # need to be trained in epochs
         # usually we do N epochs, for critic and M for actor (in paper 50 vs 3)

@@ -212,7 +212,7 @@ class ArcherAgent(nn.Module):
 
         Args:
             target_model: the model we are slowly updating (e.g., EMA version)
-            source_model: the model we are tracking (e.g., current LLM/actor)
+            source_model: the model we are tracking
             tau: interpolation factor (0 < tau <= 1), small tau = slow update
         """
 
@@ -271,7 +271,8 @@ class Reinforce(nn.Module):
             # Ensure proper shapes
             if advantage.dim() == 1:
                 advantage = advantage.unsqueeze(-1)
-                
+            print(advantage.shape)
+            print(logprobs.shape)
             # Compute policy gradient loss
             # Sum logprobs across sequence dimension
             pg_loss = -torch.mean(advantage * logprobs.sum(dim=1))
