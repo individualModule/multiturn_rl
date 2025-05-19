@@ -218,19 +218,19 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                                     num_workers=self.num_workers,
                                     collate_fn=custom_collate_fn
                                 )
-        critic_metrics = self._update_critic(self.critic_epochs, dataloader)
+            critic_metrics = self._update_critic(self.critic_epochs, dataloader)
 
-        if iteration >= self.warmup_iterations:
-            actor_metrics = self._update_actor(self.actor_epochs, dataloader)
-        else:
-            actor_metrics = {"actor/avg_loss": None, "actor/epochs": 0}  # Placeholder metrics for warmup
-            
-            # Log iteration metrics
-            wandb.log({
-                "iteration": iteration,
-                **critic_metrics,
-                **actor_metrics
-            })
+            if iteration >= self.warmup_iterations:
+                actor_metrics = self._update_actor(self.actor_epochs, dataloader)
+            else:
+                actor_metrics = {"actor/avg_loss": None, "actor/epochs": 0}  # Placeholder metrics for warmup
+                
+                # Log iteration metrics
+                wandb.log({
+                    "iteration": iteration,
+                    **critic_metrics,
+                    **actor_metrics
+                })
 
             buffer.reset()
 
