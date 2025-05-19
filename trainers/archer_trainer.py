@@ -63,7 +63,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         self.num_workers = self.cfg.trainer.num_workers
         self.max_grad_norm = self.cfg.trainer.max_grad_norm
         self.tau = self.cfg.trainer.tau
-        
+        self.warmup_iterations = self.cfg.trainer.warmup_iters
+
         self.add_callback(GameRecordCallback())
         self.add_callback(RolloutProgressCallback(self.rollout_steps))
 
@@ -103,23 +104,28 @@ class ArcherPlayPen(BasePlayPenMultiturn):
 
         total_episode_scores = []
         total_response_scores = []
+        
+        per_episode_response_sum = []
+
         min_episode_score = float('inf')
         max_episode_score = float('-inf')
-
+        
         # Process each trajectory
         for trajectory in eval_trajectories:
             episode_score = 0
 
+            trajectory_response_sum = 0
             for step in trajectory:
                 # Accumulate response scores for turn-level rewards
                 response_score = step['info'].get('response_score', 0)
                 total_response_scores.append(response_score)
-
+                trajectory_response_sum += response_score
                 # Update episode score if available
                 episode_score = step['info'].get('episode_score', episode_score)
 
             # Track episode-level metrics
             total_episode_scores.append(episode_score)
+            per_episode_response_sum.append(trajectory_response_sum)
             min_episode_score = min(min_episode_score, episode_score)
             max_episode_score = max(max_episode_score, episode_score)
 
@@ -127,6 +133,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         metrics = {
             'eval/average_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
             'eval/average_turn_reward': sum(total_response_scores) / len(total_response_scores) if total_response_scores else 0,
+            'eval/average_per_episode_turn_sum': sum(per_episode_response_sum)/len(per_episode_response_sum) if per_episode_response_sum else 0,
             'eval/min_reward': min_episode_score if total_episode_scores else 0,
             'eval/max_reward': max_episode_score if total_episode_scores else 0
         }
@@ -194,7 +201,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                 eval_metrics = self._evaluate_policy(current_iteration=iteration)
                 print(f"Initial evaluation:", 
                     f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
-                    f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}")
+                    f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}",
+                    f"Avg Turn Reward Sum: {eval_metrics['average_per_episode_turn_sum']}")
                 
                 # Save checkpoint if evaluation metrics improve
                 self._save_checkpoint(iteration, eval_metrics)
