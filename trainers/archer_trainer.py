@@ -204,7 +204,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                 print(f"Initial evaluation:", 
                     f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
                     f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}",
-                    f"Avg Turn Reward Sum: {eval_metrics['average_per_episode_turn_sum']}")
+                    f"Avg Turn Reward Sum: {eval_metrics['eval/average_per_episode_turn_sum']}")
                 
                 # Save checkpoint if evaluation metrics improve
                 self._save_checkpoint(iteration, eval_metrics)
