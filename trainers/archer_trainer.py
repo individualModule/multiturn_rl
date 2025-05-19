@@ -72,6 +72,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
 
         # Initialize wandb with config
         wandb.init(project=self.cfg.project_name,
+                   name=self.cfg.run_name,
+                   group=self.cfg.group,
                   config=dict(self.cfg))
 
     def learn_interactive(self, game_registry: GameRegistry):
