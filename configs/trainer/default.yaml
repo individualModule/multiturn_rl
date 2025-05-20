@@ -1,9 +1,9 @@
 rollout_steps: 512
-rollout_iterations: 500
-eval_frequency: 10
+rollout_iterations: 10
+eval_frequency: 5
 eval_episodes: 5
-critic_epochs: 50
-actor_epochs: 3
+critic_epochs: 25
+actor_epochs: 5
 max_grad_norm: 0.5
 tau: 0.9
 batch_size: 4
@@ -11,4 +11,4 @@ num_workers: 1
 gamma: 0.98
 eval_instances: "test_instances.json"
 eval_rollout_steps: 128
-warmup_iters: 10
+warmup_iters: 1
