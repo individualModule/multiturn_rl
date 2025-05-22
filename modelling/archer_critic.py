@@ -275,6 +275,6 @@ class Reinforce(nn.Module):
             print(logprobs.shape)
             # Compute policy gradient loss
             # Sum logprobs across sequence dimension
-            pg_loss = -torch.mean(advantage * logprobs.sum(dim=1))
+            pg_loss = -torch.mean(logprobs.sum(dim=1) * advantage)
             
             return pg_loss
