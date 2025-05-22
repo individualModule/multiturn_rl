@@ -36,16 +36,18 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         super().__init__(learner, teacher)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.game_spec = None
+        self.cfg = cfg  # Fix: Assign cfg to self.cfg
 
-        # Initialize Archer components
+        # lora parameters
         self.policy = learner
+        # Initialize Archer components
+
         self.critic = critic
         self.target_critic = target_critic
         self.critic_optimizer = critic_optimizer
         self.actor_optimizer = actor_optimizer
         self.critic_loss = critic_loss
         self.actor_loss = actor_loss
-        self.cfg = cfg  # Fix: Assign cfg to self.cfg
         self.agent = ArcherAgent(self.policy, self.critic, self.target_critic, self.cfg.trainer.gamma)
         
         # Load parameters from config
@@ -64,6 +66,9 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         self.max_grad_norm = self.cfg.trainer.max_grad_norm
         self.tau = self.cfg.trainer.tau
         self.warmup_iterations = self.cfg.trainer.warmup_iters
+
+
+
 
         self.add_callback(GameRecordCallback())
         self.add_callback(RolloutProgressCallback(self.rollout_steps))

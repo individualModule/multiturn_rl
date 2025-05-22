@@ -3,6 +3,7 @@ from omegaconf import DictConfig
 import torch
 import os
 
+from peft import LoraConfig, get_peft_model
 from trainers.archer_trainer import ArcherPlayPen
 from clemcore.clemgame.registry import GameRegistry
 from clemcore.backends import ModelRegistry, BackendRegistry
@@ -100,6 +101,19 @@ def main(cfg: DictConfig):
         device=device
     )
 
+        # Initialize LoRA for the policy model
+    lora_config = LoraConfig(
+            r=cfg.lora.r,  # Rank of the low-rank matrices
+            lora_alpha=cfg.lora.alpha,  # Scaling factor
+            lora_dropout=cfg.lora.dropout,  # Dropout for LoRA
+            bias=cfg.lora.bias
+        )
+    
+    learner.model = get_peft_model(learner.model, lora_config)
+
+    for param in learner.model.base_model.parameters():
+        param.requires_grad = False
+        
     critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic, params=critic.parameters())
     actor_optimizer = hydra.utils.instantiate(cfg.optimizer.actor, params=learner.model.parameters())
     critic_loss = hydra.utils.instantiate(cfg.loss.critic)
