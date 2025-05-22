@@ -211,11 +211,14 @@ class ArcherPlayPen(BasePlayPenMultiturn):
 
             # Get stored trajectories
             dataset = StepRolloutDataset(buffer.trajectories)
+            if len(dataset) == 0:
+                raise ValueError("Dataset is empty. Please check data preparation.")
+            print("Dataset size:", len(dataset))
+
             dataloader = DataLoader(
                                     dataset,
                                     batch_size=self.batch_size,
                                     shuffle=True,
-                                    num_workers=self.num_workers,
                                     collate_fn=custom_collate_fn
                                 )
             critic_metrics = self._update_critic(self.critic_epochs, dataloader)
@@ -225,8 +228,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
             else:
                 actor_metrics = {"actor/avg_loss": None, "actor/epochs": 0}  # Placeholder metrics for warmup
                 
-                # Log iteration metrics
-                wandb.log({
+            # Log iteration metrics
+            wandb.log({
                     "iteration": iteration,
                     **critic_metrics,
                     **actor_metrics

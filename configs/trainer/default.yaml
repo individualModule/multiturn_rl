@@ -1,8 +1,8 @@
-rollout_steps: 512
+rollout_steps: 256
 rollout_iterations: 50
 eval_frequency: 5
 eval_episodes: 5
-critic_epochs: 20
+critic_epochs: 12
 actor_epochs: 5
 max_grad_norm: 0.5
 tau: 0.9
