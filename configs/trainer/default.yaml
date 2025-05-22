@@ -6,7 +6,7 @@ critic_epochs: 20
 actor_epochs: 5
 max_grad_norm: 0.5
 tau: 0.9
-batch_size: 4
+batch_size: 1
 num_workers: 1
 gamma: 0.98
 eval_instances: "test_instances.json"
