@@ -4,6 +4,7 @@ defaults:
   - model: default
   - loss: default
   - game: default
+  - lora: default
   - _self_
 
 project_name: archer-rl
