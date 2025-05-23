@@ -10,7 +10,8 @@ batch_size: 8
 num_workers: 1
 gamma: 0.98
 eval_instances: "test_instances.json"
-eval_rollout_steps: 256
+eval_rollout_steps: 128
 warmup_iters: 1
 scale_reward: False
 scaling_factor: 100.00
+is_replay_buffer: True

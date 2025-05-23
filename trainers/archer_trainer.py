@@ -22,7 +22,7 @@ import hydra
 from omegaconf import DictConfig
 import os 
 
-from clemcore.playpen import BasePlayPenMultiturn, make_env, StepRolloutBuffer, GameRecordCallback, RolloutProgressCallback
+from clemcore.playpen import BasePlayPenMultiturn, make_env, StepRolloutBuffer, ReplayBuffer, GameRecordCallback, RolloutProgressCallback
 from clemcore.clemgame import GameRegistry, GameSpec
 from modelling.archer_critic import ArcherAgent, CriticNetwork
 from dataloaders.playpen_dataloader import StepRolloutDataset, custom_collate_fn
@@ -69,7 +69,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         self.scaling_factor = self.cfg.trainer.scaling_factor
         self.scale_reward = self.cfg.trainer.scale_reward
 
-
+        # buffer definition and parameters
+        self.is_replay_buffer = self.cfg.trainer.is_replay_buffer
 
         self.add_callback(GameRecordCallback())
         self.add_callback(RolloutProgressCallback(self.rollout_steps))
@@ -88,7 +89,11 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         
         # Create environment and buffer
         with make_env(self.game_spec, [self.learner, self.teacher]) as env:
-            buffer = StepRolloutBuffer(env)
+            if self.is_replay_buffer:
+                # sample size should be equal to the steps sampled.
+                buffer = ReplayBuffer(env, buffer_size=self.rollout_steps*15, sample_size=self.rollout_steps)
+            else:
+                buffer = StepRolloutBuffer(env)
 
             # self._collect_rollouts(env, self.rollout_steps, buffer) 
             self._train(buffer, env)
@@ -201,6 +206,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
 
         # Training loop
         for iteration in range(self.rollout_iterations):
+            torch.cuda.empty_cache() # empty cache ocassionally
             # Collect trajectories
             self._collect_rollouts(game_env = env,
                                    rollout_steps = self.rollout_steps,
@@ -244,7 +250,9 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                     **actor_metrics
                 })
 
-            buffer.reset()
+            # replay buffer has no reset - pop mechanism (oldest samples are popped)
+            if not self.is_replay_buffer:
+                buffer.reset()
 
 
     def _update_critic(self, critic_epochs, dataloader, scaled_reward=False, scaling_factor=100.0):
