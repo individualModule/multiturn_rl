@@ -20,6 +20,7 @@ from tqdm import tqdm
 import wandb
 import hydra
 from omegaconf import DictConfig
+import pickle
 import os 
 
 from clemcore.playpen import BasePlayPenMultiturn, make_env, StepRolloutBuffer, ReplayBuffer, GameRecordCallback, RolloutProgressCallback
@@ -162,7 +163,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         return metrics
 
     
-    def _save_checkpoint(self, iteration, eval_metrics):
+    def _save_checkpoint(self, iteration, eval_metrics, buffer=None):
         """Save training checkpoint if the metric improves."""
         checkpoint_dir = "checkpoints"
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -187,6 +188,12 @@ class ArcherPlayPen(BasePlayPenMultiturn):
             torch.save(checkpoint, checkpoint_path)
             print(f"Best checkpoint saved at {checkpoint_path} with metric: {current_metric:.2f}")
 
+            # Save the buffer if provided
+            if buffer is not None:
+                buffer_path = os.path.join(checkpoint_dir, f"buffer_iteration_{iteration}.pkl")
+                with open(buffer_path, "wb") as f:
+                    pickle.dump(buffer, f)
+                print(f"Buffer saved at {buffer_path}")
 
     def _train(self, buffer, env):
         # Run initial evaluation
@@ -221,7 +228,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                     f"Avg Turn Reward Sum: {eval_metrics['eval/average_per_episode_turn_sum']}")
                 
                 # Save checkpoint if evaluation metrics improve
-                self._save_checkpoint(iteration, eval_metrics)
+                self._save_checkpoint(iteration, eval_metrics, buffer=buffer)
 
             # Get stored trajectories
             dataset = StepRolloutDataset(buffer.trajectories)
@@ -254,6 +261,17 @@ class ArcherPlayPen(BasePlayPenMultiturn):
             if not self.is_replay_buffer:
                 buffer.reset()
 
+
+        # Final evaluation after training
+        print("Running final evaluation...")
+        final_eval_metrics = self._evaluate_policy(current_iteration=self.rollout_iterations)
+        print(f"Final evaluation:",
+            f"Average Reward: {final_eval_metrics['eval/average_reward']:.2f},",
+            f"Avg Turn Reward: {final_eval_metrics['eval/average_turn_reward']:.2f}",
+            f"Avg Turn Reward Sum: {final_eval_metrics['eval/average_per_episode_turn_sum']}")
+        
+        # Optionally save a final checkpoint
+        self._save_checkpoint(self.rollout_iterations, final_eval_metrics)
 
     def _update_critic(self, critic_epochs, dataloader, scaled_reward=False, scaling_factor=100.0):
         """
