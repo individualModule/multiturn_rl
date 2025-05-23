@@ -145,8 +145,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
             'eval/max_reward': max_episode_score if total_episode_scores else 0
         }
 
-        if current_iteration is not None:
-            metrics['iteration'] = current_iteration
+        # if current_iteration is not None:
+        #     metrics['iteration'] = current_iteration
 
         # Log metrics to wandb
         wandb.log(metrics)
@@ -306,7 +306,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                 self.actor_optimizer.zero_grad()
                 
                 pi_action = self.agent.get_policy_action(batch['obs'])
-                q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action)
+                q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
                 
                 #take minumum of q and minimum of v
                 q = torch.minimum(q1, q2)
@@ -328,6 +328,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                     "actor/loss": loss.item(),
                     "actor/advantages_mean": advantages.mean().item(),
                     "actor/logprobs_mean": logprobs.mean().item(),
+                    "actor/logprobs_min": logprobs.min().item(),
+                    "actor/logprobs_max": logprobs.max().item(),
                     "actor/epoch": e
                 }
                 wandb.log(metrics)

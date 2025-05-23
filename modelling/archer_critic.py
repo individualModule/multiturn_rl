@@ -154,13 +154,13 @@ class ArcherAgent(nn.Module):
         return responses
 
 
-    def get_critic_values(self, observation: List[List[dict]], action: List[List[dict]]):
+    def get_critic_values(self, observation: List[List[dict]], action: List[List[dict]], detach_model = False):
         """
         Get Q and V values from the critic 
         """
         # q1, q2, v1, v2 = self.critic(observation, action, detach_model=False)
 
-        return self.critic(observation, action)
+        return self.critic(observation, action, detach_model)
 
     def get_log_prob(self, observation: List[List[dict]], action: List[List[dict]]) -> torch.Tensor:
         """
@@ -267,14 +267,15 @@ class Reinforce(nn.Module):
             Returns:
                 Combined loss from policy gradient
             """    
-            
+            print(advantage.shape)
+            print(f'adv: {advantage}')
+            print(logprobs.shape)
+            print(f'logprobs: {logprobs}')
             # Ensure proper shapes
             if advantage.dim() == 1:
                 advantage = advantage.unsqueeze(-1)
-            print(advantage.shape)
-            print(logprobs.shape)
             # Compute policy gradient loss
             # Sum logprobs across sequence dimension
             pg_loss = -torch.mean(logprobs.sum(dim=1) * advantage)
-            
+            print(f'pg: {pg_loss}')
             return pg_loss
