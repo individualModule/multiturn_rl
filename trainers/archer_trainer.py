@@ -150,7 +150,9 @@ class ArcherPlayPen(BasePlayPenMultiturn):
 
         # Log metrics to wandb
         wandb.log(metrics)
-
+        
+        eval_buffer.reset()
+        
         return metrics
 
     

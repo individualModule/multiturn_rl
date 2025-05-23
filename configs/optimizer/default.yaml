@@ -6,6 +6,6 @@ actor:
 
 critic:
   _target_: torch.optim.Adam
-  lr: 6e-4
+  lr: 6e-5
   betas: [0.9, 0.999]
   weight_decay: 1e-4
