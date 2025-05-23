@@ -66,7 +66,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         self.max_grad_norm = self.cfg.trainer.max_grad_norm
         self.tau = self.cfg.trainer.tau
         self.warmup_iterations = self.cfg.trainer.warmup_iters
-
+        self.scaling_factor = self.cfg.trainer.scaling_factor
+        self.scale_reward = self.cfg.trainer.scale_reward
 
 
 
@@ -228,7 +229,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                                     shuffle=True,
                                     collate_fn=custom_collate_fn
                                 )
-            critic_metrics = self._update_critic(self.critic_epochs, dataloader)
+            critic_metrics = self._update_critic(self.critic_epochs, dataloader,
+                                                  scaled_reward=self.scale_reward, scaling_factor=self.scaling_factor)
 
             if iteration >= self.warmup_iterations:
                 actor_metrics = self._update_actor(self.actor_epochs, dataloader)
@@ -245,7 +247,16 @@ class ArcherPlayPen(BasePlayPenMultiturn):
             buffer.reset()
 
 
-    def _update_critic(self, critic_epochs, dataloader):
+    def _update_critic(self, critic_epochs, dataloader, scaled_reward=False, scaling_factor=100.0):
+        """
+        Update the critic network.
+
+        Args:
+            critic_epochs: Number of epochs to train the critic.
+            dataloader: DataLoader for training data.
+            scaled_reward: If True, scale the rewards by the scaling_factor.
+            scaling_factor: The factor by which to scale the rewards.
+        """
         epoch_losses = []
         
         for e in range(critic_epochs):
@@ -256,16 +267,20 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                 batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
                 self.critic_optimizer.zero_grad()
 
+                # Scale rewards if scaled_reward is True
+                if scaled_reward:
+                    batch['reward'] = batch['reward'] / scaling_factor
+
                 q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], batch['action'])
                 target_q1, target_q2 = self.agent.compute_target_q(batch['obs'])
                 target_v1, target_v2 = self.agent.compute_target_v(batch['next_obs'],
-                                                                   batch['action'],
-                                                                   batch['reward'],
-                                                                   batch['done'])
+                                                                batch['action'],
+                                                                batch['reward'],
+                                                                batch['done'])
 
                 loss = self.critic_loss(q1, q2, v1, v2,
-                                      target_v1, target_v2,
-                                      target_q1, target_q2)
+                                        target_v1, target_v2,
+                                        target_q1, target_q2)
 
                 loss.backward()
                 clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
@@ -293,6 +308,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
             "critic/avg_loss": sum(epoch_losses) / len(epoch_losses),
             "critic/epochs": critic_epochs
         }
+
 
     def _update_actor(self, actor_epochs, dataloader):
         epoch_losses = []

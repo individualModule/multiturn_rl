@@ -12,3 +12,5 @@ gamma: 0.98
 eval_instances: "test_instances.json"
 eval_rollout_steps: 256
 warmup_iters: 1
+scale_reward: False
+scaling_factor: 100.00
