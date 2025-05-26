@@ -23,12 +23,12 @@ from omegaconf import DictConfig
 import pickle
 import os 
 
-from clemcore.playpen import BasePlayPenMultiturn, make_env, StepRolloutBuffer, ReplayBuffer, GameRecordCallback, RolloutProgressCallback
+from clemcore.playpen import BasePlayPenMultiturnTrajectory, make_env, StepRolloutBuffer, ReplayBuffer, GameRecordCallback, RolloutProgressCallback
 from clemcore.clemgame import GameRegistry, GameSpec
 from modelling.archer_critic import ArcherAgent, CriticNetwork
 from dataloaders.playpen_dataloader import StepRolloutDataset, custom_collate_fn
 
-class ArcherPlayPen(BasePlayPenMultiturn):
+class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
     def __init__(self, learner, teacher, critic, target_critic,
                  critic_optimizer, actor_optimizer,
                  critic_loss, actor_loss, rollout_iterations,
@@ -56,10 +56,10 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         self.actor_epochs = self.cfg.trainer.actor_epochs
 
         self.forPlayer = self.cfg.game.learner.name
-        self.rollout_steps = self.cfg.trainer.rollout_steps
+        self.rollout_steps = self.cfg.trainer.rollout_steps # trajectory count 
         self.rollout_iterations = self.cfg.trainer.rollout_iterations
         self.eval_instances = self.cfg.trainer.eval_instances
-        self.eval_rollout_steps = self.cfg.trainer.eval_rollout_steps
+        self.eval_rollout_steps = self.cfg.trainer.eval_rollout_steps # trajectory count
         self.eval_frequency = self.cfg.trainer.eval_frequency
         self.eval_episodes = self.cfg.trainer.eval_episodes
         self.batch_size = self.cfg.trainer.batch_size
@@ -92,7 +92,8 @@ class ArcherPlayPen(BasePlayPenMultiturn):
         with make_env(self.game_spec, [self.learner, self.teacher]) as env:
             if self.is_replay_buffer:
                 # sample size should be equal to the steps sampled.
-                buffer = ReplayBuffer(env, buffer_size=self.rollout_steps*15, sample_size=self.rollout_steps)
+                # need to figure this one out. How many items in the buffer and on how many items do we train? 
+                buffer = ReplayBuffer(env, buffer_size=self.rollout_steps*15, sample_size=self.rollout_steps*3)
             else:
                 buffer = StepRolloutBuffer(env)
 
@@ -112,7 +113,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                 forPlayer=self.forPlayer
             )
 
-        eval_trajectories = eval_buffer.trajectories
+        eval_trajectories = eval_buffer.sample_trajectories()
 
         # Initialize metrics
 
@@ -231,7 +232,7 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                 self._save_checkpoint(iteration, eval_metrics, buffer=buffer)
 
             # Get stored trajectories
-            dataset = StepRolloutDataset(buffer.trajectories)
+            dataset = StepRolloutDataset(buffer.sample_trajectories())
             if len(dataset) == 0:
                 raise ValueError("Dataset is empty. Please check data preparation.")
             print("Dataset size:", len(dataset))
@@ -314,6 +315,14 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                 self.critic_optimizer.step()
                 self.agent.soft_target_update(self.target_critic, self.critic, self.tau)
                 
+                print(f"q1: {q1}")
+                print(f"q2: {q2}")
+                print(f"v1: {v1}")
+                print(f"v2: {v2}")
+                print(f"target q1: {target_q1}")
+                print(f"target q2: {target_q2}")
+
+
                 # Log batch metrics
                 metrics = {
                     "critic/loss": loss.item(),
@@ -321,6 +330,14 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                     "critic/q2_mean": q2.mean().item(),
                     "critic/v1_mean": v1.mean().item(),
                     "critic/v2_mean": v2.mean().item(),
+                    "critic/q1_min": q1.min().item(),
+                    "critic/q1_max": q1.max().item(),
+                    "critic/q2_min": q2.min().item(),
+                    "critic/q2_max": q2.max().item(),
+                    "critic/v1_min": v1.min().item(),
+                    "critic/v1_max": v1.max().item(),
+                    "critic/v2_min": v2.min().item(),
+                    "critic/v2_max": v2.max().item(),
                     "critic/epoch": e
                 }
                 wandb.log(metrics)
@@ -349,7 +366,13 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                 
                 pi_action = self.agent.get_policy_action(batch['obs'])
                 q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
-                
+                print(f"policy action: {pi_action}")
+                print('actor q v ----')
+                print(f"q1: {q1}")
+                print(f"q2: {q2}")
+                print(f"v1: {v1}")
+                print(f"v2: {v2}")
+                print('--------')
                 #take minumum of q and minimum of v
                 q = torch.minimum(q1, q2)
                 v = torch.minimum(v1, v2)
@@ -372,6 +395,18 @@ class ArcherPlayPen(BasePlayPenMultiturn):
                     "actor/logprobs_mean": logprobs.mean().item(),
                     "actor/logprobs_min": logprobs.min().item(),
                     "actor/logprobs_max": logprobs.max().item(),
+                    "actor/q1_mean": q1.mean().item(),
+                    "actor/q2_mean": q2.mean().item(),
+                    "actor/v1_mean": v1.mean().item(),
+                    "actor/v2_mean": v2.mean().item(),
+                    "actor/q1_min": q1.min().item(),
+                    "actor/q1_max": q1.max().item(),
+                    "actor/q2_min": q2.min().item(),
+                    "actor/q2_max": q2.max().item(),
+                    "actor/v1_min": v1.min().item(),
+                    "actor/v1_max": v1.max().item(),
+                    "actor/v2_min": v2.min().item(),
+                    "actor/v2_max": v2.max().item(),
                     "actor/epoch": e
                 }
                 wandb.log(metrics)

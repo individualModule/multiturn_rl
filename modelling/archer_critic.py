@@ -85,6 +85,9 @@ class DoubleCritic(nn.Module):
         
         flat_obs = self.flatten_chat(observation)
         flat_action = self.flatten_chat(action)
+        
+        print(f"flat obs: {flat_obs}")
+        print(f"flat actions: {flat_obs}")
 
         assert len(flat_obs) == len(flat_action), "batch sizes not equal!"
 
