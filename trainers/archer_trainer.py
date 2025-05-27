@@ -20,7 +20,6 @@ from tqdm import tqdm
 import wandb
 import hydra
 from omegaconf import DictConfig
-import pickle
 import os 
 
 from clemcore.playpen import BasePlayPenMultiturnTrajectory, make_env, StepRolloutBuffer, ReplayBuffer, GameRecordCallback, RolloutProgressCallback
@@ -189,12 +188,6 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             torch.save(checkpoint, checkpoint_path)
             print(f"Best checkpoint saved at {checkpoint_path} with metric: {current_metric:.2f}")
 
-            # Save the buffer if provided
-            if buffer is not None:
-                buffer_path = os.path.join(checkpoint_dir, f"buffer_iteration_{iteration}.pkl")
-                with open(buffer_path, "wb") as f:
-                    pickle.dump(buffer, f)
-                print(f"Buffer saved at {buffer_path}")
 
     def _train(self, buffer, env):
         # Run initial evaluation
