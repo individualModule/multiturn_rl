@@ -1,12 +1,12 @@
-spec_name: "guesswhat"  # Replace with actual game spec name
+spec_name: "imagegame"  # Replace with actual game spec name
 
 teacher:
   model_name: "Unsloth-Llama-3-8B"   # Replace with actual model name
   max_tokens: 350
-  temperature: 0.3
+  temperature: 0
   
 learner:
   model_name: "Unsloth-Llama-3-8B"   # Replace with actual model name
   max_tokens: 350
-  temperature: 0.3
-  name: "Guesser"
+  temperature: 0.0
+  name: "Player 2"
