@@ -188,6 +188,8 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             torch.save(checkpoint, checkpoint_path)
             print(f"Best checkpoint saved at {checkpoint_path} with metric: {current_metric:.2f}")
 
+            if buffer:
+                buffer.save_buffer(checkpoint_path)
 
     def _train(self, buffer, env):
         # Run initial evaluation
