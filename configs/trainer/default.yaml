@@ -1,4 +1,4 @@
-rollout_steps: 20
+rollout_steps: 40
 rollout_iterations: 70
 eval_frequency: 5
 eval_episodes: 5
@@ -12,6 +12,6 @@ gamma: 0.98
 eval_instances: "test_instances.json"
 eval_rollout_steps: 10
 warmup_iters: 2
-scale_reward: True
+scale_reward: False
 scaling_factor: 100.00
 is_replay_buffer: True

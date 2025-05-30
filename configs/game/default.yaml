@@ -1,4 +1,4 @@
-spec_name: "imagegame"  # Replace with actual game spec name
+spec_name: "codenames"  # Replace with actual game spec name
 
 teacher:
   model_name: "Unsloth-Llama-3-8B"   # Replace with actual model name
