@@ -145,9 +145,9 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
 
         # Calculate metrics
         metrics = {
-            'eval/average_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
+            'eval/average_episode_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
             'eval/average_turn_reward': sum(total_response_scores) / len(total_response_scores) if total_response_scores else 0,
-            'eval/average_per_episode_turn_sum': sum(per_episode_response_sum)/len(per_episode_response_sum) if per_episode_response_sum else 0,
+            'eval/average_accumulated_reward': sum(per_episode_response_sum)/len(per_episode_response_sum) if per_episode_response_sum else 0,
             'eval/min_reward': min_episode_score if total_episode_scores else 0,
             'eval/max_reward': max_episode_score if total_episode_scores else 0
         }
@@ -169,7 +169,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
         os.makedirs(checkpoint_dir, exist_ok=True)
 
         # Use a key metric to determine if this is the best checkpoint
-        current_metric = eval_metrics['eval/average_reward']  # Example: average reward
+        current_metric = eval_metrics['eval/average_accumulated_reward']  # Example: average reward
         if current_metric > self.best_metric:
             self.best_metric = current_metric
             checkpoint_path = os.path.join(checkpoint_dir, f"best_checkpoint.pt")
@@ -219,9 +219,9 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             if iteration % self.eval_frequency == 0:
                 eval_metrics = self._evaluate_policy(current_iteration=iteration)
                 print(f"Initial evaluation:", 
-                    f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
+                    f"Average Reward: {eval_metrics['eval/average_episode_reward']:.2f},",
                     f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}",
-                    f"Avg Turn Reward Sum: {eval_metrics['eval/average_per_episode_turn_sum']}")
+                    f"Avg accumulated reward: {eval_metrics['eval/average_accumulated_reward']}")
                 
                 # Save checkpoint if evaluation metrics improve
                 self._save_checkpoint(iteration, eval_metrics, buffer=buffer)
@@ -262,9 +262,9 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
         print("Running final evaluation...")
         final_eval_metrics = self._evaluate_policy(current_iteration=self.rollout_iterations)
         print(f"Final evaluation:",
-            f"Average Reward: {final_eval_metrics['eval/average_reward']:.2f},",
+            f"Average Reward: {final_eval_metrics['eval/average_episode_reward']:.2f},",
             f"Avg Turn Reward: {final_eval_metrics['eval/average_turn_reward']:.2f}",
-            f"Avg Turn Reward Sum: {final_eval_metrics['eval/average_per_episode_turn_sum']}")
+            f"Avg accumulated reward: {final_eval_metrics['eval/average_accumulated_reward']}")
         
         # Optionally save a final checkpoint
         self._save_checkpoint(self.rollout_iterations, final_eval_metrics)
