@@ -282,6 +282,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
         epoch_losses = []
         
         for e in range(critic_epochs):
+            torch.cuda.empty_cache() # empty cache ocassionally
             epoch_loss = 0
             num_batches = 0
             
@@ -352,6 +353,8 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
         epoch_losses = []
         
         for e in range(actor_epochs):
+            torch.cuda.empty_cache() # empty cache ocassionally
+
             epoch_loss = 0
             num_batches = 0
             for batch in tqdm(dataloader):
