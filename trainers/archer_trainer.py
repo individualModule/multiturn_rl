@@ -229,6 +229,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             max_retries = 5
             retries = 0
             dataset = None
+            
             # Get stored trajectories
             while retries < max_retries:
                 dataset = StepRolloutDataset(buffer.sample_trajectories())
