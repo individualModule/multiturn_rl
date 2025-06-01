@@ -320,12 +320,6 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 self.critic_optimizer.step()
                 self.agent.soft_target_update(self.target_critic, self.critic, self.tau)
                 
-                print(f"q1: {q1}")
-                print(f"q2: {q2}")
-                print(f"v1: {v1}")
-                print(f"v2: {v2}")
-                print(f"target q1: {target_q1}")
-                print(f"target q2: {target_q2}")
 
 
                 # Log batch metrics
@@ -373,13 +367,6 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 
                 pi_action = self.agent.get_policy_action(batch['obs'])
                 q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
-                print(f"policy action: {pi_action}")
-                print('actor q v ----')
-                print(f"q1: {q1}")
-                print(f"q2: {q2}")
-                print(f"v1: {v1}")
-                print(f"v2: {v2}")
-                print('--------')
                 #take minumum of q and minimum of v
                 q = torch.minimum(q1, q2)
                 v = torch.minimum(v1, v2)

@@ -86,9 +86,6 @@ class DoubleCritic(nn.Module):
         flat_obs = self.flatten_chat(observation)
         flat_action = self.flatten_chat(action)
         
-        print(f"flat obs: {flat_obs}")
-        print(f"flat actions: {flat_action}")
-
         assert len(flat_obs) == len(flat_action), "batch sizes not equal!"
 
         obs_ids = self.base_tokenizer(flat_obs, padding=True, return_tensors='pt', 
@@ -270,15 +267,10 @@ class Reinforce(nn.Module):
             Returns:
                 Combined loss from policy gradient
             """    
-            print(advantage.shape)
-            print(f'adv: {advantage}')
-            print(logprobs.shape)
-            print(f'logprobs: {logprobs}')
             # Ensure proper shapes
             if advantage.dim() == 1:
                 advantage = advantage.unsqueeze(-1)
             # Compute policy gradient loss
             # Sum logprobs across sequence dimension
             pg_loss = -torch.mean(logprobs.sum(dim=1) * advantage)
-            print(f'pg: {pg_loss}')
             return pg_loss
