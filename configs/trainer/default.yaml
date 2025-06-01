@@ -5,10 +5,10 @@ eval_episodes: 5
 critic_epochs: 10
 actor_epochs: 3
 max_grad_norm: 0.5
-tau: 0.9
+tau: 0.1
 batch_size: 32
 num_workers: 1
-gamma: 0.98
+gamma: 0.97
 eval_instances: "test_instances.json"
 eval_rollout_steps: 10
 warmup_iters: 3
