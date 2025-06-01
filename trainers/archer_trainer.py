@@ -131,7 +131,11 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             trajectory_response_sum = 0
             for step in trajectory:
                 # Accumulate response scores for turn-level rewards
-                response_score = step['info'].get('response_score', 0)
+                if step['done']:
+                    response_score = step['info'].get('episode_score', 0)
+                else:
+                    response_score = step['info'].get('response_score', 0)
+                    
                 total_response_scores.append(response_score)
                 trajectory_response_sum += response_score
                 # Update episode score if available
