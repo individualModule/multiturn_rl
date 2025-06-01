@@ -19,15 +19,20 @@ class StepRolloutDataset(Dataset):
         # Flatten trajectories into individual transition samples
 
         # context returns a list of previous interactions (each interaction is a dict)}
+        # we don't return None for next obs because it will break the code.
+        # the fn for target q will just use the reward instead of calc. q value since we send info that episode is done.
         for trajectory in trajectories:
-            for i in range(len(trajectory) - 1):  # -1 to handle next_obs
+            for i in range(len(trajectory)):  
                 current = trajectory[i]
-                next_step = trajectory[i + 1]
+                next_step = trajectory[i + 1] if i+1 < len(trajectory) else None
                 self.samples.append({
                     'obs': current['context'],
                     'action': current['response'],
-                    'reward': torch.tensor(current['info']['response_score'], dtype=torch.float),
-                    'next_obs': next_step['context'],
+                    'reward': torch.tensor(
+                        current['info']['response_score'] if next_step else current['info']['episode_score'], 
+                        dtype=torch.float
+                    ),
+                    'next_obs': next_step['context'] if next_step else current['context'],  
                     'done': torch.tensor(current['done'], dtype=torch.bool)
                 })
     
