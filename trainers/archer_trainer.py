@@ -226,10 +226,19 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 # Save checkpoint if evaluation metrics improve
                 self._save_checkpoint(iteration, eval_metrics, buffer=buffer)
 
+            max_retries = 5
+            retries = 0
+            dataset = None
             # Get stored trajectories
-            dataset = StepRolloutDataset(buffer.sample_trajectories())
-            if len(dataset) == 0:
-                raise ValueError("Dataset is empty. Please check data preparation.")
+            while retries < max_retries:
+                dataset = StepRolloutDataset(buffer.sample_trajectories())
+                if len(dataset) > 0:
+                    break
+                retries += 1
+                print (len(buffer.trajectories))
+            if dataset is None or len(dataset) == 0:
+                raise ValueError("Dataset is empty after maximum retries. Please check data preparation.")
+
             print("Dataset size:", len(dataset))
 
             dataloader = DataLoader(
