@@ -7,6 +7,22 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 import torch
 
+class FlatBufferDataset(Dataset):
+    """
+    Works with the ReplayBuffer. Takes in a sample of steps, NOT Trajectories, and constructs the needed dataset.
+    Steps have been already flattened and pre-processed inside the buffer.
+
+    TODO the process needs a cleanup and a bit of optimization.
+    """  
+    def __init__(self, steps: list[dict]):
+        self.samples = steps
+        
+    def __len__(self):
+        return len(self.samples)
+    
+    def __getitem__(self, idx):
+        sample = self.samples[idx]
+        return sample
 
 class StepRolloutDataset(Dataset):
     """

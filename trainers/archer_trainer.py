@@ -25,7 +25,7 @@ import os
 from clemcore.playpen import BasePlayPenMultiturnTrajectory, make_env, StepRolloutBuffer, ReplayBuffer, GameRecordCallback, RolloutProgressCallback
 from clemcore.clemgame import GameRegistry, GameSpec
 from modelling.archer_critic import ArcherAgent, CriticNetwork
-from dataloaders.playpen_dataloader import StepRolloutDataset, custom_collate_fn
+from dataloaders.playpen_dataloader import StepRolloutDataset, FlatBufferDataset, custom_collate_fn
 
 class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
     def __init__(self, learner, teacher, critic, target_critic,
@@ -266,7 +266,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             epoch_loss = 0
             num_batches = 0
 
-            dataset = StepRolloutDataset(buffer.sample_trajectories())
+            dataset = FlatBufferDataset(buffer.sample_steps())
             if dataset is None or len(dataset) == 0:
                 raise ValueError("Dataset is empty after maximum retries. Please check data preparation.")
 
@@ -344,7 +344,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             torch.cuda.empty_cache() # empty cache ocassionally
 
             # sample data
-            dataset = StepRolloutDataset(buffer.sample_trajectories())
+            dataset = FlatBufferDataset(buffer.sample_steps())
             if dataset is None or len(dataset) == 0:
                 raise ValueError("Dataset is empty after maximum retries. Please check data preparation.")
 
