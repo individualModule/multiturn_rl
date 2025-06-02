@@ -110,7 +110,8 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 game_env=eval_env,
                 rollout_steps=self.eval_rollout_steps,
                 rollout_buffer=eval_buffer,
-                forPlayer=self.forPlayer
+                forPlayer=self.forPlayer,
+                eval=True
             )
 
         eval_trajectories = eval_buffer.sample_trajectories()
