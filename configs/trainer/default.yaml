@@ -15,3 +15,4 @@ warmup_iters: 3
 scale_reward: False
 scaling_factor: 100.00
 is_replay_buffer: True
+step_size: 256

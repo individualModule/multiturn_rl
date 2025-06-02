@@ -57,10 +57,11 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
         self.forPlayer = self.cfg.game.learner.name
         self.rollout_steps = self.cfg.trainer.rollout_steps # trajectory count 
         self.rollout_iterations = self.cfg.trainer.rollout_iterations
-        self.eval_instances = self.cfg.trainer.eval_instances
+        self.eval_instances = self.cfg.trainer.eval_instances # name of eval instances file
         self.eval_rollout_steps = self.cfg.trainer.eval_rollout_steps # trajectory count
         self.eval_frequency = self.cfg.trainer.eval_frequency
         self.eval_episodes = self.cfg.trainer.eval_episodes
+        self.step_size = self.cfg.trainer.step_size # number of sample datapoints per epoch
         self.batch_size = self.cfg.trainer.batch_size
         self.num_workers = self.cfg.trainer.num_workers
         self.max_grad_norm = self.cfg.trainer.max_grad_norm
@@ -92,7 +93,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             if self.is_replay_buffer:
                 # sample size should be equal to the steps sampled.
                 # need to figure this one out. How many items in the buffer and on how many items do we train? 
-                buffer = ReplayBuffer(env, buffer_size=self.rollout_steps*15, sample_size=self.rollout_steps*3)
+                buffer = ReplayBuffer(env, buffer_size=self.rollout_steps*15, sample_size=self.step_size)
             else:
                 buffer = StepRolloutBuffer(env)
 
@@ -135,7 +136,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                     response_score = step['info'].get('episode_score', 0)
                 else:
                     response_score = step['info'].get('response_score', 0)
-                    
+
                 total_response_scores.append(response_score)
                 trajectory_response_sum += response_score
                 # Update episode score if available
@@ -196,20 +197,6 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 buffer.save_buffer(checkpoint_path)
 
     def _train(self, buffer, env):
-        # Run initial evaluation
-        print("Running initial evaluation...")
-        # eval_metrics = self._evaluate_policy(current_iteration=0)
-        # print(f"Initial evaluation:", 
-        #       f"Average Reward: {eval_metrics['eval/average_reward']:.2f},",
-        #       f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}")
-
-        # need to be trained in epochs
-        # usually we do N epochs, for critic and M for actor (in paper 50 vs 3)
-        # they usually do Y sample iterations (2000)
-        # they also do warmup rounds with no actor updates
-
-        # in the paper, they don't train on all of the data that is in the buffer. - they randomly sample
-        # use that as an ablation potentially
 
         # Training loop
         for iteration in range(self.rollout_iterations):
@@ -228,35 +215,14 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                     f"Avg accumulated reward: {eval_metrics['eval/average_accumulated_reward']}")
                 
                 # Save checkpoint if evaluation metrics improve
-                self._save_checkpoint(iteration, eval_metrics, buffer=buffer)
-
-            max_retries = 5
-            retries = 0
-            dataset = None
-            
+                self._save_checkpoint(iteration, eval_metrics, buffer=buffer)            
             # Get stored trajectories
-            while retries < max_retries:
-                dataset = StepRolloutDataset(buffer.sample_trajectories())
-                if len(dataset) > 0:
-                    break
-                retries += 1
-                print (len(buffer.trajectories))
-            if dataset is None or len(dataset) == 0:
-                raise ValueError("Dataset is empty after maximum retries. Please check data preparation.")
 
-            print("Dataset size:", len(dataset))
-
-            dataloader = DataLoader(
-                                    dataset,
-                                    batch_size=self.batch_size,
-                                    shuffle=True,
-                                    collate_fn=custom_collate_fn
-                                )
-            critic_metrics = self._update_critic(self.critic_epochs, dataloader,
-                                                  scaled_reward=self.scale_reward, scaling_factor=self.scaling_factor)
+            critic_metrics = self._update_critic(self.critic_epochs,
+                                                  scaled_reward=self.scale_reward, scaling_factor=self.scaling_factor, buffer=buffer)
 
             if iteration >= self.warmup_iterations:
-                actor_metrics = self._update_actor(self.actor_epochs, dataloader)
+                actor_metrics = self._update_actor(self.actor_epochs, buffer=buffer)
             else:
                 actor_metrics = {"actor/avg_loss": None, "actor/epochs": 0}  # Placeholder metrics for warmup
                 
@@ -283,7 +249,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
         # Optionally save a final checkpoint
         self._save_checkpoint(self.rollout_iterations, final_eval_metrics)
 
-    def _update_critic(self, critic_epochs, dataloader, scaled_reward=False, scaling_factor=100.0):
+    def _update_critic(self, critic_epochs, scaled_reward=False, scaling_factor=100.0, buffer=None):
         """
         Update the critic network.
 
@@ -299,12 +265,26 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             torch.cuda.empty_cache() # empty cache ocassionally
             epoch_loss = 0
             num_batches = 0
-            
+
+            dataset = StepRolloutDataset(buffer.sample_trajectories())
+            if dataset is None or len(dataset) == 0:
+                raise ValueError("Dataset is empty after maximum retries. Please check data preparation.")
+
+            print("Dataset size:", len(dataset))
+
+            dataloader = DataLoader(
+                                    dataset,
+                                    batch_size=self.batch_size,
+                                    shuffle=True,
+                                    collate_fn=custom_collate_fn
+                                )
+
             for batch in tqdm(dataloader):
                 batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
                 self.critic_optimizer.zero_grad()
 
                 # Scale rewards if scaled_reward is True
+                # TODO - need to implement this in the actor as well
                 if scaled_reward:
                     batch['reward'] = batch['reward'] / scaling_factor
 
@@ -357,11 +337,25 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
         }
 
 
-    def _update_actor(self, actor_epochs, dataloader):
+    def _update_actor(self, actor_epochs, buffer):
         epoch_losses = []
         
         for e in range(actor_epochs):
             torch.cuda.empty_cache() # empty cache ocassionally
+
+            # sample data
+            dataset = StepRolloutDataset(buffer.sample_trajectories())
+            if dataset is None or len(dataset) == 0:
+                raise ValueError("Dataset is empty after maximum retries. Please check data preparation.")
+
+            print("Dataset size:", len(dataset))
+
+            dataloader = DataLoader(
+                                    dataset,
+                                    batch_size=self.batch_size,
+                                    shuffle=True,
+                                    collate_fn=custom_collate_fn
+                                )
 
             epoch_loss = 0
             num_batches = 0
