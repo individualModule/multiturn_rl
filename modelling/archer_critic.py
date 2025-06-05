@@ -220,15 +220,15 @@ class ArcherAgent(nn.Module):
             target_param.data.copy_(tau * source_param.data + (1.0 - tau) * target_param.data)
 
 
-    def compute_advantages(self, rewards: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
+    def compute_advantages(self, q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
         """Computes the advantage as the difference between reward and value estimate."""
 
-        if rewards.dim() == 1:
+        if q.dim() == 1:
             rewards = rewards.unsqueeze(-1)
-        if values.dim() == 1:
+        if v.dim() == 1:
             values = values.unsqueeze(-1)
         
-        return rewards - values
+        return q - v
 
 
 class TDLoss(nn.Module):

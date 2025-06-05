@@ -101,71 +101,104 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             self._train(buffer, env)
             # buffer.reset()
 
-    def _evaluate_policy(self, current_iteration=None):
-        with make_env(self.game_spec, [self.learner, self.teacher], instances_name=self.eval_instances) as eval_env:
-            eval_buffer = StepRolloutBuffer(eval_env)
-
-            # Collect rollouts for evaluation
-            self._collect_rollouts(
-                game_env=eval_env,
-                rollout_steps=self.eval_rollout_steps,
-                rollout_buffer=eval_buffer,
-                forPlayer=self.forPlayer,
-                eval=True
-            )
-
-        eval_trajectories = eval_buffer.sample_trajectories()
-
-        # Initialize metrics
-
-        total_episode_scores = []
-        total_response_scores = []
+    def _monitor_lora_gradients(self):
+        """Monitor gradients and parameters of LoRA adapters."""
+        lora_params = {}
+        lora_grads = {}
         
-        per_episode_response_sum = []
-
-        min_episode_score = float('inf')
-        max_episode_score = float('-inf')
-        
-        # Process each trajectory
-        for trajectory in eval_trajectories:
-            episode_score = 0
-
-            trajectory_response_sum = 0
-            for step in trajectory:
-                # Accumulate response scores for turn-level rewards
-                if step['done']:
-                    response_score = step['info'].get('episode_score', 0)
+        # Collect LoRA parameter names, values, and gradients
+        for name, param in self.policy.model.named_parameters():
+            if 'lora' in name and param.requires_grad:
+                lora_params[name] = param.data.norm().item()
+                if param.grad is not None:
+                    lora_grads[name] = param.grad.norm().item()
                 else:
-                    response_score = step['info'].get('response_score', 0)
-
-                total_response_scores.append(response_score)
-                trajectory_response_sum += response_score
-                # Update episode score if available
-                episode_score = step['info'].get('episode_score', episode_score)
-
-            # Track episode-level metrics
-            total_episode_scores.append(episode_score)
-            per_episode_response_sum.append(trajectory_response_sum)
-            min_episode_score = min(min_episode_score, episode_score)
-            max_episode_score = max(max_episode_score, episode_score)
-
-        # Calculate metrics
+                    lora_grads[name] = 0.0
+        
+        # Log average gradient norm and parameter norm
+        avg_grad_norm = sum(lora_grads.values()) / max(len(lora_grads), 1)
+        avg_param_norm = sum(lora_params.values()) / max(len(lora_params), 1)
+        
+        # Log to wandb
         metrics = {
-            'eval/average_episode_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
-            'eval/average_turn_reward': sum(total_response_scores) / len(total_response_scores) if total_response_scores else 0,
-            'eval/average_accumulated_reward': sum(per_episode_response_sum)/len(per_episode_response_sum) if per_episode_response_sum else 0,
-            'eval/min_reward': min_episode_score if total_episode_scores else 0,
-            'eval/max_reward': max_episode_score if total_episode_scores else 0
+            "lora/avg_grad_norm": avg_grad_norm,
+            "lora/avg_param_norm": avg_param_norm,
+            "lora/active_params": len(lora_params)
         }
-
-        # if current_iteration is not None:
-        #     metrics['iteration'] = current_iteration
-
-        # Log metrics to wandb
-        wandb.log(metrics)
         
-        eval_buffer.reset()
+        # Sample some specific layers to track in detail
+        for name, grad in list(lora_grads.items())[:5]:  # Track first 5 LoRA layers
+            metrics[f"lora_grad/{name}"] = grad
         
+        return metrics
+    
+    def _evaluate_policy(self, current_iteration=None):
+        with torch.no_grad():
+            with make_env(self.game_spec, [self.learner, self.teacher], instances_name=self.eval_instances) as eval_env:
+                eval_buffer = StepRolloutBuffer(eval_env)
+
+                # Collect rollouts for evaluation
+                self._collect_rollouts(
+                    game_env=eval_env,
+                    rollout_steps=self.eval_rollout_steps,
+                    rollout_buffer=eval_buffer,
+                    forPlayer=self.forPlayer,
+                    eval=True
+                )
+
+            eval_trajectories = eval_buffer.sample_trajectories()
+
+            # Initialize metrics
+
+            total_episode_scores = []
+            total_response_scores = []
+            
+            per_episode_response_sum = []
+
+            min_episode_score = float('inf')
+            max_episode_score = float('-inf')
+            
+            # Process each trajectory
+            for trajectory in eval_trajectories:
+                episode_score = 0
+
+                trajectory_response_sum = 0
+                for step in trajectory:
+                    # Accumulate response scores for turn-level rewards
+                    if step['done']:
+                        response_score = step['info'].get('episode_score', 0)
+                    else:
+                        response_score = step['info'].get('response_score', 0)
+
+                    total_response_scores.append(response_score)
+                    trajectory_response_sum += response_score
+                    # Update episode score if available
+                    episode_score = step['info'].get('episode_score', episode_score)
+
+                # Track episode-level metrics
+                total_episode_scores.append(episode_score)
+                per_episode_response_sum.append(trajectory_response_sum)
+                min_episode_score = min(min_episode_score, episode_score)
+                max_episode_score = max(max_episode_score, episode_score)
+
+            # Calculate metrics
+
+            metrics = {
+                'eval/average_episode_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
+                'eval/average_turn_reward': sum(total_response_scores) / len(total_response_scores) if total_response_scores else 0,
+                'eval/average_accumulated_reward': sum(per_episode_response_sum)/len(per_episode_response_sum) if per_episode_response_sum else 0,
+                'eval/min_reward': min_episode_score if total_episode_scores else 0,
+                'eval/max_reward': max_episode_score if total_episode_scores else 0
+            }
+
+            # if current_iteration is not None:
+            #     metrics['iteration'] = current_iteration
+
+            # Log metrics to wandb
+            wandb.log(metrics)
+            
+            eval_buffer.reset()
+            
         return metrics
 
     
@@ -307,24 +340,24 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 self.agent.soft_target_update(self.target_critic, self.critic, self.tau)
                 
 
-
-                # Log batch metrics
-                metrics = {
-                    "critic/loss": loss.item(),
-                    "critic/q1_mean": q1.mean().item(),
-                    "critic/q2_mean": q2.mean().item(),
-                    "critic/v1_mean": v1.mean().item(),
-                    "critic/v2_mean": v2.mean().item(),
-                    "critic/q1_min": q1.min().item(),
-                    "critic/q1_max": q1.max().item(),
-                    "critic/q2_min": q2.min().item(),
-                    "critic/q2_max": q2.max().item(),
-                    "critic/v1_min": v1.min().item(),
-                    "critic/v1_max": v1.max().item(),
-                    "critic/v2_min": v2.min().item(),
-                    "critic/v2_max": v2.max().item(),
-                    "critic/epoch": e
-                }
+                with torch.no_grad():
+                    # Log batch metrics
+                    metrics = {
+                        "critic/loss": loss.item(),
+                        "critic/q1_mean": q1.mean().item(),
+                        "critic/q2_mean": q2.mean().item(),
+                        "critic/v1_mean": v1.mean().item(),
+                        "critic/v2_mean": v2.mean().item(),
+                        "critic/q1_min": q1.min().item(),
+                        "critic/q1_max": q1.max().item(),
+                        "critic/q2_min": q2.min().item(),
+                        "critic/q2_max": q2.max().item(),
+                        "critic/v1_min": v1.min().item(),
+                        "critic/v1_max": v1.max().item(),
+                        "critic/v2_min": v2.min().item(),
+                        "critic/v2_max": v2.max().item(),
+                        "critic/epoch": e
+                    }
                 wandb.log(metrics)
                 
                 epoch_loss += loss.item()
@@ -364,14 +397,14 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
 
                 self.actor_optimizer.zero_grad()
-                
-                pi_action = self.agent.get_policy_action(batch['obs'])
-                q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
-                #take minumum of q and minimum of v
-                q = torch.minimum(q1, q2)
-                v = torch.minimum(v1, v2)
+                with torch.no_grad():
+                    pi_action = self.agent.get_policy_action(batch['obs'])
+                    q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
+                    #take minumum of q and minimum of v
+                    q = torch.minimum(q1, q2)
+                    v = torch.minimum(v1, v2)
 
-                advantages = self.agent.compute_advantages(q, v)
+                    advantages = self.agent.compute_advantages(q, v)
 
                 logprobs = self.agent.get_log_prob(batch['obs'],
                                                    pi_action)
@@ -381,28 +414,32 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
 
                 clip_grad_norm_(self.policy.model.parameters(), self.max_grad_norm)
                 self.actor_optimizer.step()
-                
+                lora_grad_metrics = self._monitor_lora_gradients()
                 # Log batch metrics
-                metrics = {
-                    "actor/loss": loss.item(),
-                    "actor/advantages_mean": advantages.mean().item(),
-                    "actor/logprobs_mean": logprobs.mean().item(),
-                    "actor/logprobs_min": logprobs.min().item(),
-                    "actor/logprobs_max": logprobs.max().item(),
-                    "actor/q1_mean": q1.mean().item(),
-                    "actor/q2_mean": q2.mean().item(),
-                    "actor/v1_mean": v1.mean().item(),
-                    "actor/v2_mean": v2.mean().item(),
-                    "actor/q1_min": q1.min().item(),
-                    "actor/q1_max": q1.max().item(),
-                    "actor/q2_min": q2.min().item(),
-                    "actor/q2_max": q2.max().item(),
-                    "actor/v1_min": v1.min().item(),
-                    "actor/v1_max": v1.max().item(),
-                    "actor/v2_min": v2.min().item(),
-                    "actor/v2_max": v2.max().item(),
-                    "actor/epoch": e
-                }
+                with torch.no_grad():
+                    metrics = {
+                        "actor/loss": loss.item(),
+                        "actor/advantages_mean": advantages.mean().item(),
+                        "actor/logprobs_mean": logprobs.mean().item(),
+                        "actor/logprobs_min": logprobs.min().item(),
+                        "actor/logprobs_max": logprobs.max().item(),
+                        "actor/q1_mean": q1.mean().item(),
+                        "actor/q2_mean": q2.mean().item(),
+                        "actor/v1_mean": v1.mean().item(),
+                        "actor/v2_mean": v2.mean().item(),
+                        "actor/q1_min": q1.min().item(),
+                        "actor/q1_max": q1.max().item(),
+                        "actor/q2_min": q2.min().item(),
+                        "actor/q2_max": q2.max().item(),
+                        "actor/v1_min": v1.min().item(),
+                        "actor/v1_max": v1.max().item(),
+                        "actor/v2_min": v2.min().item(),
+                        "actor/v2_max": v2.max().item(),
+                        "actor/epoch": e
+                    }
+                    
+                    metrics.update(lora_grad_metrics)  # Add to existing metrics dictionary
+
                 wandb.log(metrics)
                 
                 epoch_loss += loss.item()
