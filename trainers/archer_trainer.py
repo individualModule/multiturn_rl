@@ -62,7 +62,8 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
         self.eval_frequency = self.cfg.trainer.eval_frequency
         self.eval_episodes = self.cfg.trainer.eval_episodes
         self.step_size = self.cfg.trainer.step_size # number of sample datapoints per epoch
-        self.batch_size = self.cfg.trainer.batch_size
+        self.actor_batch_size = self.cfg.trainer.actor_batch_size
+        self.critic_batch_size = self.cfg.trainer.critic_batch_size
         self.num_workers = self.cfg.trainer.num_workers
         self.max_grad_norm = self.cfg.trainer.max_grad_norm
         self.tau = self.cfg.trainer.tau
@@ -93,7 +94,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             if self.is_replay_buffer:
                 # sample size should be equal to the steps sampled.
                 # need to figure this one out. How many items in the buffer and on how many items do we train? 
-                buffer = ReplayBuffer(env, buffer_size=self.rollout_steps*15, sample_size=self.step_size)
+                buffer = ReplayBuffer(env, buffer_size=10000, sample_size=self.step_size)
             else:
                 buffer = StepRolloutBuffer(env)
 
@@ -308,7 +309,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
 
             dataloader = DataLoader(
                                     dataset,
-                                    batch_size=self.batch_size,
+                                    batch_size=self.critic_batch_size,
                                     shuffle=True,
                                     collate_fn=custom_collate_fn
                                 )
@@ -386,7 +387,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
 
             dataloader = DataLoader(
                                     dataset,
-                                    batch_size=self.batch_size,
+                                    batch_size=self.actor_batch_size,
                                     shuffle=True,
                                     collate_fn=custom_collate_fn
                                 )
@@ -437,7 +438,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                         "actor/v2_max": v2.max().item(),
                         "actor/epoch": e
                     }
-                    
+
                     metrics.update(lora_grad_metrics)  # Add to existing metrics dictionary
 
                 wandb.log(metrics)
