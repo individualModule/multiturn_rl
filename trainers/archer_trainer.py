@@ -88,7 +88,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
     def learn_interactive(self, game_registry: GameRegistry):
         # Select game spec you want to train on
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
-        
+
         # Create environment and buffer
         with make_env(self.game_spec, [self.learner, self.teacher]) as env:
             if self.is_replay_buffer:
@@ -398,12 +398,11 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
 
                 self.actor_optimizer.zero_grad()
-                with torch.no_grad():
-                    pi_action = self.agent.get_policy_action(batch['obs'])
-                    q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
-                    #take minumum of q and minimum of v
-                    q = torch.minimum(q1, q2)
-                    v = torch.minimum(v1, v2)
+                pi_action = self.agent.get_policy_action(batch['obs'])
+                q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
+                #take minumum of q and minimum of v
+                q = torch.minimum(q1, q2)
+                v = torch.minimum(v1, v2)
 
                 advantages = self.agent.compute_advantages(q, v)
 

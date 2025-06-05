@@ -111,9 +111,12 @@ def main(cfg: DictConfig):
     
     learner.model = get_peft_model(learner.model, lora_config)
 
-    for param in learner.model.base_model.parameters():
-        param.requires_grad = False
-        
+    for name, param in learner.model.named_parameters():
+        if 'lora' in name:
+            param.requires_grad = True  # Enable gradients for LoRA parameters
+        else:
+            param.requires_grad = False  # Freeze other parameters   
+                 
     critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic, params=critic.parameters())
     actor_optimizer = hydra.utils.instantiate(cfg.optimizer.actor, params=learner.model.parameters())
     critic_loss = hydra.utils.instantiate(cfg.loss.critic)
