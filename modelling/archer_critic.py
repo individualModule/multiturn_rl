@@ -133,7 +133,7 @@ class ArcherAgent(nn.Module):
             "content": response
         }
 
-    def get_policy_action(self, observations: List[List[dict]]) -> List[List[dict]]:
+    def get_policy_action_old(self, observations: List[List[dict]]) -> List[List[dict],]:
         """
         Sample the action from the policy using the Player class's generate_response
         return the response in the appropriate format:
@@ -153,6 +153,25 @@ class ArcherAgent(nn.Module):
             
         return responses
 
+    def get_policy_action(self, observations: List[List[dict]], get_logprob=False) -> Union[List[List[dict]], Tuple[List[List[dict]], torch.Tensor]]:
+        """
+        Sample the action from the policy using the Player class's generate_action_and_logprobs.
+        Optionally return log probabilities of the actions.
+
+        Args:
+            observations: A batch of observations.
+            get_logprob: If True, also return log probabilities of the actions.
+
+        Returns:
+            If get_logprob is False: List[List[dict]] (actions).
+            If get_logprob is True: Tuple[List[List[dict]], torch.Tensor] (actions, log probabilities).
+        """
+        # Use the generate_action_and_logprobs function
+        actions, log_probs = self.policy.generate_action_and_logprobs(observations)
+
+        if get_logprob:
+            return actions, log_probs
+        return actions
 
     def get_critic_values(self, observation: List[List[dict]], action: List[List[dict]], detach_model = False):
         """
@@ -165,6 +184,8 @@ class ArcherAgent(nn.Module):
     def get_log_prob(self, observation: List[List[dict]], action: List[List[dict]]) -> torch.Tensor:
         """
         Get logprob of the generated sequence using the model's calculate_logprobs
+
+        NOT IN USE  - MOVED TO OBTAIN LOGPROBS IN THE SAME MOVE AS ACTIONS
         """
         # The underlying HuggingFace model is accessed through player.model
         return self.policy.calculate_logprobs(observation, action)

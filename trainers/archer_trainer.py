@@ -398,7 +398,8 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
 
                 self.actor_optimizer.zero_grad()
-                pi_action = self.agent.get_policy_action(batch['obs'])
+                # fetches both logprob and actions in a batch
+                pi_action, logprobs = self.agent.get_policy_action(batch['obs'], get_logprob=True) 
                 q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
                 #take minumum of q and minimum of v
                 q = torch.minimum(q1, q2)
@@ -406,8 +407,8 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
 
                 advantages = self.agent.compute_advantages(q, v)
 
-                logprobs = self.agent.get_log_prob(batch['obs'],
-                                                   pi_action)
+                # logprobs = self.agent.get_log_prob(batch['obs'],
+                #                                    pi_action)
                 print(logprobs.requires_grad)  # Should be True
                 print(advantages.requires_grad)  # Should be True
                 loss = self.actor_loss(advantages, logprobs)
