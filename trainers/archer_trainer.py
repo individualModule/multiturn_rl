@@ -404,11 +404,12 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                     q = torch.minimum(q1, q2)
                     v = torch.minimum(v1, v2)
 
-                    advantages = self.agent.compute_advantages(q, v)
+                advantages = self.agent.compute_advantages(q, v)
 
                 logprobs = self.agent.get_log_prob(batch['obs'],
                                                    pi_action)
-                
+                print(logprobs.requires_grad)  # Should be True
+                print(advantages.requires_grad)  # Should be True
                 loss = self.actor_loss(advantages, logprobs)
                 loss.backward()
 
