@@ -6,8 +6,8 @@ critic_epochs: 6
 actor_epochs: 2
 max_grad_norm: 0.5
 tau: 0.1
-batch_size: 32
-num_workers: 1
+critic_batch_size: 128  # Can be larger since critic is smaller
+actor_batch_size: 32    # May need to be smaller due to LoRA model sizenum_workers: 1
 gamma: 0.97
 eval_instances: "test_instances.json"
 eval_rollout_steps: 10
