@@ -117,6 +117,20 @@ def main(cfg: DictConfig):
         else:
             param.requires_grad = False  # Freeze other parameters   
     
+    print("\nLoRA Parameter Status:")
+    for name, param in learner.model.named_parameters():
+        if 'lora' in name: print(f"{name}: requires_grad={param.requires_grad}, shape={list(param.shape)}")
+        
+    # Add assertions to verify LoRA parameters are trainable
+    lora_params_count = sum(1 for name, param in learner.model.named_parameters() if 'lora' in name)
+    trainable_lora_params = sum(1 for name, param in learner.model.named_parameters() if 'lora' in name and param.requires_grad)
+    non_lora_trainable = sum(1 for name, param in learner.model.named_parameters() if 'lora' not in name and param.requires_grad)
+
+    assert trainable_lora_params > 0, "No LoRA parameters are trainable!"
+    assert trainable_lora_params == lora_params_count, f"Only {trainable_lora_params}/{lora_params_count} LoRA parameters are trainable"
+    assert non_lora_trainable == 0, f"Found {non_lora_trainable} non-LoRA parameters that are trainable"
+
+    print(f"\nVerified: {trainable_lora_params} LoRA parameters are trainable, all other parameters are frozen")
     critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic, params=critic.parameters())
     actor_optimizer = hydra.utils.instantiate(cfg.optimizer.actor, params=learner.model.parameters())
     critic_loss = hydra.utils.instantiate(cfg.loss.critic)
