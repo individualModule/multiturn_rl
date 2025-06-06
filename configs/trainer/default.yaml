@@ -5,7 +5,7 @@ eval_episodes: 5
 critic_epochs: 8
 actor_epochs: 2
 max_grad_norm: 0.5
-tau: 0.1
+tau: 0.1 # actual fn is 1-tau so our update is 0.9
 critic_batch_size: 128  # Can be larger since critic is smaller
 actor_batch_size: 8    # May need to be smaller due to LoRA model size
 num_workers: 1
