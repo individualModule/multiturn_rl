@@ -117,19 +117,6 @@ def main(cfg: DictConfig):
         else:
             param.requires_grad = False  # Freeze other parameters   
     
-    observations = [
-        [{"role": "user", "content": "What is the capital of France?"}],
-        [{"role": "user", "content": "Who wrote '1984'?"}],
-        [{"role": "user", "content": "Hi, how are"}]
-        ]
-
-    # Call the function
-    actions, log_probs = learner.model.generate_action_and_logprobs(observations)
-
-    # Print results
-    print("Generated Actions:", actions)
-    print("Log Probabilities:", log_probs)
-    
     critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic, params=critic.parameters())
     actor_optimizer = hydra.utils.instantiate(cfg.optimizer.actor, params=learner.model.parameters())
     critic_loss = hydra.utils.instantiate(cfg.loss.critic)
