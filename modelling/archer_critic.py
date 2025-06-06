@@ -167,7 +167,7 @@ class ArcherAgent(nn.Module):
             If get_logprob is True: Tuple[List[List[dict]], torch.Tensor] (actions, log probabilities).
         """
         # Use the generate_action_and_logprobs function
-        actions, log_probs = self.policy.generate_action_and_logprobs(observations)
+        actions, log_probs = self.policy.generate_action_and_logprobs(observations, return_logprobs = get_logprob)
 
         if get_logprob:
             return actions, log_probs
