@@ -120,7 +120,7 @@ def main(cfg: DictConfig):
     print("\nLoRA Parameter Status:")
     for name, param in learner.model.named_parameters():
         if 'lora' in name: print(f"{name}: requires_grad={param.requires_grad}, shape={list(param.shape)}")
-        
+
     # Add assertions to verify LoRA parameters are trainable
     lora_params_count = sum(1 for name, param in learner.model.named_parameters() if 'lora' in name)
     trainable_lora_params = sum(1 for name, param in learner.model.named_parameters() if 'lora' in name and param.requires_grad)
