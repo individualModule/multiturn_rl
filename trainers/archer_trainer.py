@@ -150,20 +150,28 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             eval_trajectories = eval_buffer.sample_trajectories()
 
             # Initialize metrics
-
             total_episode_scores = []
             total_response_scores = []
-            
             per_episode_response_sum = []
+
+            game_length = []
 
             min_episode_score = float('inf')
             max_episode_score = float('-inf')
-            
+
+            # Counters for success, aborted, and lost instances
+            success_count = 0
+            aborted_count = 0
+            lost_count = 0
+
+            # Track individual instance results
+            instance_results = []
+
             # Process each trajectory
             for trajectory in eval_trajectories:
                 episode_score = 0
-
                 trajectory_response_sum = 0
+                game_length.append(len(trajectory))
                 for step in trajectory:
                     # Accumulate response scores for turn-level rewards
                     if step['done']:
@@ -182,26 +190,52 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 min_episode_score = min(min_episode_score, episode_score)
                 max_episode_score = max(max_episode_score, episode_score)
 
-            # Calculate metrics
+                # Track success/aborted/lost status for the instance
+                instance_info = trajectory[-1]['info']  # Use the last step's info for status
+                if instance_info['success']:
+                    success_count += 1
+                    status = "success"
+                elif instance_info['aborted']:
+                    aborted_count += 1
+                    status = "aborted"
+                elif instance_info['lost']:
+                    lost_count += 1
+                    status = "lost"
+                else:
+                    status = "unknown"
 
+                instance_results.append({
+                    "instance_id": instance_info.get('game_id', -1),  # Add instance ID if available
+                    "episode_score": episode_score,
+                    "status": status
+                })
+
+            # Calculate metrics
             metrics = {
                 'eval/average_episode_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
                 'eval/average_turn_reward': sum(total_response_scores) / len(total_response_scores) if total_response_scores else 0,
-                'eval/average_accumulated_reward': sum(per_episode_response_sum)/len(per_episode_response_sum) if per_episode_response_sum else 0,
+                'eval/average_accumulated_reward': sum(per_episode_response_sum) / len(per_episode_response_sum) if per_episode_response_sum else 0,
                 'eval/min_reward': min_episode_score if total_episode_scores else 0,
-                'eval/max_reward': max_episode_score if total_episode_scores else 0
+                'eval/max_reward': max_episode_score if total_episode_scores else 0,
+                'eval/success_count': success_count,
+                'eval/aborted_count': aborted_count,
+                'eval/lost_count': lost_count,
+                'eval/avg_game_lengtgh' : sum(game_length)/ len(game_length) if len(game_length) > 0 else 0
             }
 
-            # if current_iteration is not None:
-            #     metrics['iteration'] = current_iteration
+            # Log instance results
+            for result in instance_results:
+                wandb.log({
+                    f"eval/instance/{result['instance_id']}/episode_score": result['episode_score'],
+                    f"eval/instance/{result['instance_id']}/status": result['status']
+                })
 
-            # Log metrics to wandb
+            # Log overall metrics to wandb
             wandb.log(metrics)
-            
-            eval_buffer.reset()
-            
-        return metrics
 
+            eval_buffer.reset()
+
+        return metrics
     
     def _save_checkpoint(self, iteration, eval_metrics, buffer=None):
         """Save training checkpoint if the metric improves."""
@@ -370,7 +404,6 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             "critic/avg_loss": sum(epoch_losses) / len(epoch_losses),
             "critic/epochs": critic_epochs
         }
-
 
     def _update_actor(self, actor_epochs, buffer):
         epoch_losses = []
