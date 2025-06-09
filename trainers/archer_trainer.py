@@ -101,170 +101,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             # self._collect_rollouts(env, self.rollout_steps, buffer) 
             self._train(buffer, env)
             # buffer.reset()
-
-    def _monitor_lora_gradients(self):
-        """Monitor gradients and parameters of LoRA adapters."""
-        lora_params = {}
-        lora_grads = {}
-        
-        # Collect LoRA parameter names, values, and gradients
-        for name, param in self.policy.model.named_parameters():
-            if 'lora' in name and param.requires_grad:
-                lora_params[name] = param.data.norm().item()
-                if param.grad is not None:
-                    lora_grads[name] = param.grad.norm().item()
-                else:
-                    lora_grads[name] = 0.0
-        
-        # Log average gradient norm and parameter norm
-        avg_grad_norm = sum(lora_grads.values()) / max(len(lora_grads), 1)
-        avg_param_norm = sum(lora_params.values()) / max(len(lora_params), 1)
-        
-        # Log to wandb
-        metrics = {
-            "lora/avg_grad_norm": avg_grad_norm,
-            "lora/avg_param_norm": avg_param_norm,
-            "lora/active_params": len(lora_params)
-        }
-        
-        # Sample some specific layers to track in detail
-        for name, grad in list(lora_grads.items())[:5]:  # Track first 5 LoRA layers
-            metrics[f"lora_grad/{name}"] = grad
-        
-        return metrics
     
-    def _evaluate_policy(self, current_iteration=None):
-        with torch.no_grad():
-            with make_env(self.game_spec, [self.learner, self.teacher], instances_name=self.eval_instances) as eval_env:
-                eval_buffer = StepRolloutBuffer(eval_env)
-
-                # Collect rollouts for evaluation
-                self._collect_rollouts(
-                    game_env=eval_env,
-                    rollout_steps=self.eval_rollout_steps,
-                    rollout_buffer=eval_buffer,
-                    forPlayer=self.forPlayer,
-                    eval=True
-                )
-
-            eval_trajectories = eval_buffer.sample_trajectories()
-
-            # Initialize metrics
-            total_episode_scores = []
-            total_response_scores = []
-            per_episode_response_sum = []
-
-            game_length = []
-
-            min_episode_score = float('inf')
-            max_episode_score = float('-inf')
-
-            # Counters for success, aborted, and lost instances
-            success_count = 0
-            aborted_count = 0
-            lost_count = 0
-
-            # Track individual instance results
-            instance_results = []
-
-            # Process each trajectory
-            for trajectory in eval_trajectories:
-                episode_score = 0
-                trajectory_response_sum = 0
-                game_length.append(len(trajectory))
-                for step in trajectory:
-                    # Accumulate response scores for turn-level rewards
-                    if step['done']:
-                        response_score = step['info'].get('episode_score', 0)
-                    else:
-                        response_score = step['info'].get('response_score', 0)
-
-                    total_response_scores.append(response_score)
-                    trajectory_response_sum += response_score
-                    # Update episode score if available
-                    episode_score = step['info'].get('episode_score', episode_score)
-
-                # Track episode-level metrics
-                total_episode_scores.append(episode_score)
-                per_episode_response_sum.append(trajectory_response_sum)
-                min_episode_score = min(min_episode_score, episode_score)
-                max_episode_score = max(max_episode_score, episode_score)
-
-                # Track success/aborted/lost status for the instance
-                instance_info = trajectory[-1]['info']  # Use the last step's info for status
-                if instance_info['success']:
-                    success_count += 1
-                    status = "success"
-                elif instance_info['aborted']:
-                    aborted_count += 1
-                    status = "aborted"
-                elif instance_info['lost']:
-                    lost_count += 1
-                    status = "lost"
-                else:
-                    status = "unknown"
-
-                instance_results.append({
-                    "instance_id": instance_info.get('game_id', -1),  # Add instance ID if available
-                    "episode_score": episode_score,
-                    "status": status
-                })
-
-            # Calculate metrics
-            metrics = {
-                'eval/average_episode_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
-                'eval/average_turn_reward': sum(total_response_scores) / len(total_response_scores) if total_response_scores else 0,
-                'eval/average_accumulated_reward': sum(per_episode_response_sum) / len(per_episode_response_sum) if per_episode_response_sum else 0,
-                'eval/min_reward': min_episode_score if total_episode_scores else 0,
-                'eval/max_reward': max_episode_score if total_episode_scores else 0,
-                'eval/success_count': success_count,
-                'eval/aborted_count': aborted_count,
-                'eval/lost_count': lost_count,
-                'eval/avg_game_lengtgh' : sum(game_length)/ len(game_length) if len(game_length) > 0 else 0
-            }
-
-            # Log instance results
-            for result in instance_results:
-                wandb.log({
-                    f"eval/instance/{result['instance_id']}/episode_score": result['episode_score'],
-                    f"eval/instance/{result['instance_id']}/status": result['status']
-                })
-
-            # Log overall metrics to wandb
-            wandb.log(metrics)
-
-            eval_buffer.reset()
-
-        return metrics
-    
-    def _save_checkpoint(self, iteration, eval_metrics, buffer=None):
-        """Save training checkpoint if the metric improves."""
-        checkpoint_dir = "checkpoints"
-        os.makedirs(checkpoint_dir, exist_ok=True)
-
-        # Use a key metric to determine if this is the best checkpoint
-        current_metric = eval_metrics['eval/average_accumulated_reward']  # Example: average reward
-        if current_metric > self.best_metric:
-            self.best_metric = current_metric
-            checkpoint_path = os.path.join(checkpoint_dir, f"best_checkpoint.pt")
-            
-            checkpoint = {
-                "iteration": iteration,
-                "policy_state_dict": self.policy.model.state_dict(),
-                "critic_state_dict": self.critic.state_dict(),
-                "target_critic_state_dict": self.target_critic.state_dict(),
-                "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
-                "actor_optimizer_state_dict": self.actor_optimizer.state_dict(),
-                "config": self.cfg,
-                "best_metric": self.best_metric
-            }
-            
-            torch.save(checkpoint, checkpoint_path)
-            print(f"Best checkpoint saved at {checkpoint_path} with metric: {current_metric:.2f}")
-
-            if buffer:
-                buffer.save_buffer(checkpoint_path)
-
     def _train(self, buffer, env):
 
         # Training loop
@@ -487,3 +324,165 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             "actor/epochs": actor_epochs
         }
 
+    def _evaluate_policy(self, current_iteration=None):
+        with torch.no_grad():
+            with make_env(self.game_spec, [self.learner, self.teacher], instances_name=self.eval_instances) as eval_env:
+                eval_buffer = StepRolloutBuffer(eval_env)
+
+                # Collect rollouts for evaluation
+                self._collect_rollouts(
+                    game_env=eval_env,
+                    rollout_steps=self.eval_rollout_steps,
+                    rollout_buffer=eval_buffer,
+                    forPlayer=self.forPlayer,
+                    eval=True
+                )
+
+            eval_trajectories = eval_buffer.sample_trajectories()
+
+            # Initialize metrics
+            total_episode_scores = []
+            total_response_scores = []
+            per_episode_response_sum = []
+
+            game_length = []
+
+            min_episode_score = float('inf')
+            max_episode_score = float('-inf')
+
+            # Counters for success, aborted, and lost instances
+            success_count = 0
+            aborted_count = 0
+            lost_count = 0
+
+            # Track individual instance results
+            instance_results = []
+
+            # Process each trajectory
+            for trajectory in eval_trajectories:
+                episode_score = 0
+                trajectory_response_sum = 0
+                game_length.append(len(trajectory))
+                for step in trajectory:
+                    # Accumulate response scores for turn-level rewards
+                    if step['done']:
+                        response_score = step['info'].get('episode_score', 0)
+                    else:
+                        response_score = step['info'].get('response_score', 0)
+
+                    total_response_scores.append(response_score)
+                    trajectory_response_sum += response_score
+                    # Update episode score if available
+                    episode_score = step['info'].get('episode_score', episode_score)
+
+                # Track episode-level metrics
+                total_episode_scores.append(episode_score)
+                per_episode_response_sum.append(trajectory_response_sum)
+                min_episode_score = min(min_episode_score, episode_score)
+                max_episode_score = max(max_episode_score, episode_score)
+
+                # Track success/aborted/lost status for the instance
+                instance_info = trajectory[-1]['info']  # Use the last step's info for status
+                if instance_info['success']:
+                    success_count += 1
+                    status = "success"
+                elif instance_info['aborted']:
+                    aborted_count += 1
+                    status = "aborted"
+                elif instance_info['lost']:
+                    lost_count += 1
+                    status = "lost"
+                else:
+                    status = "unknown"
+
+                instance_results.append({
+                    "instance_id": instance_info.get('game_id', -1),  # Add instance ID if available
+                    "episode_score": episode_score,
+                    "status": status
+                })
+
+            # Calculate metrics
+            metrics = {
+                'eval/average_episode_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
+                'eval/average_turn_reward': sum(total_response_scores) / len(total_response_scores) if total_response_scores else 0,
+                'eval/average_accumulated_reward': sum(per_episode_response_sum) / len(per_episode_response_sum) if per_episode_response_sum else 0,
+                'eval/min_reward': min_episode_score if total_episode_scores else 0,
+                'eval/max_reward': max_episode_score if total_episode_scores else 0,
+                'eval/success_count': success_count,
+                'eval/aborted_count': aborted_count,
+                'eval/lost_count': lost_count,
+                'eval/avg_game_lengtgh' : sum(game_length)/ len(game_length) if len(game_length) > 0 else 0
+            }
+
+            # Log instance results
+            for result in instance_results:
+                wandb.log({
+                    f"eval/instance/{result['instance_id']}/episode_score": result['episode_score'],
+                    f"eval/instance/{result['instance_id']}/status": result['status']
+                })
+
+            # Log overall metrics to wandb
+            wandb.log(metrics)
+
+            eval_buffer.reset()
+
+        return metrics
+
+    def _monitor_lora_gradients(self):
+        """Monitor gradients and parameters of LoRA adapters."""
+        lora_params = {}
+        lora_grads = {}
+        
+        # Collect LoRA parameter names, values, and gradients
+        for name, param in self.policy.model.named_parameters():
+            if 'lora' in name and param.requires_grad:
+                lora_params[name] = param.data.norm().item()
+                if param.grad is not None:
+                    lora_grads[name] = param.grad.norm().item()
+                else:
+                    lora_grads[name] = 0.0
+        
+        # Log average gradient norm and parameter norm
+        avg_grad_norm = sum(lora_grads.values()) / max(len(lora_grads), 1)
+        avg_param_norm = sum(lora_params.values()) / max(len(lora_params), 1)
+        
+        # Log to wandb
+        metrics = {
+            "lora/avg_grad_norm": avg_grad_norm,
+            "lora/avg_param_norm": avg_param_norm,
+            "lora/active_params": len(lora_params)
+        }
+        
+        # Sample some specific layers to track in detail
+        for name, grad in list(lora_grads.items())[:5]:  # Track first 5 LoRA layers
+            metrics[f"lora_grad/{name}"] = grad
+        
+        return metrics
+    
+    def _save_checkpoint(self, iteration, eval_metrics, buffer=None):
+        """Save training checkpoint if the metric improves."""
+        checkpoint_dir = "checkpoints"
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+        # Use a key metric to determine if this is the best checkpoint
+        current_metric = eval_metrics['eval/average_accumulated_reward']  # Example: average reward
+        if current_metric > self.best_metric:
+            self.best_metric = current_metric
+            checkpoint_path = os.path.join(checkpoint_dir, f"best_checkpoint.pt")
+            
+            checkpoint = {
+                "iteration": iteration,
+                "policy_state_dict": self.policy.model.state_dict(),
+                "critic_state_dict": self.critic.state_dict(),
+                "target_critic_state_dict": self.target_critic.state_dict(),
+                "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
+                "actor_optimizer_state_dict": self.actor_optimizer.state_dict(),
+                "config": self.cfg,
+                "best_metric": self.best_metric
+            }
+            
+            torch.save(checkpoint, checkpoint_path)
+            print(f"Best checkpoint saved at {checkpoint_path} with metric: {current_metric:.2f}")
+
+            if buffer:
+                buffer.save_buffer(checkpoint_path)
