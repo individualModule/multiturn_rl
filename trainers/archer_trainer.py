@@ -22,12 +22,12 @@ import hydra
 from omegaconf import DictConfig
 import os 
 
-from clemcore.playpen import BasePlayPenMultiturnTrajectory, make_env, StepRolloutBuffer, ReplayBuffer, GameRecordCallback, RolloutProgressCallback
+from clemcore.playpen import BasePlayPenMultiturnTrajectory,BatchRollout, make_env, make_batch_env, StepRolloutBuffer, ReplayBuffer, GameRecordCallback, RolloutProgressCallback
 from clemcore.clemgame import GameRegistry, GameSpec
 from modelling.archer_critic import ArcherAgent, CriticNetwork
 from dataloaders.playpen_dataloader import StepRolloutDataset, FlatBufferDataset, custom_collate_fn
 
-class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
+class ArcherPlayPen(BatchRollout):
     def __init__(self, learner, teacher, critic, target_critic,
                  critic_optimizer, actor_optimizer,
                  critic_loss, actor_loss, rollout_iterations,
@@ -90,7 +90,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
 
         # Create environment and buffer
-        with make_env(self.game_spec, [self.learner, self.teacher]) as env:
+        with make_batch_env(self.game_spec, [self.learner, self.teacher], shuffle_instances = True, batch_size = 64) as env:
             if self.is_replay_buffer:
                 # sample size should be equal to the steps sampled.
                 # need to figure this one out. How many items in the buffer and on how many items do we train? 
@@ -124,6 +124,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 self._save_checkpoint(iteration, eval_metrics, buffer=buffer)            
             # Get stored trajectories
 
+            print(len(buffer.steps))
             critic_metrics = self._update_critic(self.critic_epochs,
                                                   scaled_reward=self.scale_reward, scaling_factor=self.scaling_factor, buffer=buffer)
 
@@ -326,7 +327,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
 
     def _evaluate_policy(self, current_iteration=None):
         with torch.no_grad():
-            with make_env(self.game_spec, [self.learner, self.teacher], instances_name=self.eval_instances) as eval_env:
+            with make_batch_env(self.game_spec, [self.learner, self.teacher], instances_name=self.eval_instances, batch_size = 64) as eval_env:
                 eval_buffer = StepRolloutBuffer(eval_env)
 
                 # Collect rollouts for evaluation
@@ -359,7 +360,7 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
             instance_results = []
 
             # Process each trajectory
-            for trajectory in eval_trajectories:
+            for trajectory in eval_trajectories[:-1]:
                 episode_score = 0
                 trajectory_response_sum = 0
                 game_length.append(len(trajectory))
@@ -380,7 +381,6 @@ class ArcherPlayPen(BasePlayPenMultiturnTrajectory):
                 per_episode_response_sum.append(trajectory_response_sum)
                 min_episode_score = min(min_episode_score, episode_score)
                 max_episode_score = max(max_episode_score, episode_score)
-
                 # Track success/aborted/lost status for the instance
                 instance_info = trajectory[-1]['info']  # Use the last step's info for status
                 if instance_info['success']:
