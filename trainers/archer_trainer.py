@@ -69,7 +69,7 @@ class ArcherPlayPen(BatchRollout):
         self.warmup_iterations = self.cfg.trainer.warmup_iters
         self.scaling_factor = self.cfg.trainer.scaling_factor
         self.scale_reward = self.cfg.trainer.scale_reward
-
+        self.inference_batch_size = self.cfg.trainer.inference_batch_size
         self.evaluator = ArcherEval(learner, teacher, cfg, game_registry)
 
         # buffer definition and parameters
@@ -91,7 +91,7 @@ class ArcherPlayPen(BatchRollout):
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
 
         # Create environment and buffer
-        with make_batch_env(self.game_spec, [self.learner, self.teacher], shuffle_instances = True, batch_size = 64) as env:
+        with make_batch_env(self.game_spec, [self.learner, self.teacher], shuffle_instances = True, batch_size = self.inference_batch_size) as env:
             if self.is_replay_buffer:
                 # sample size should be equal to the steps sampled.
                 # need to figure this one out. How many items in the buffer and on how many items do we train? 
@@ -202,6 +202,10 @@ class ArcherPlayPen(BatchRollout):
                                                                 batch['action'],
                                                                 batch['reward'],
                                                                 batch['done'])
+                print(q1.requires_grad)
+                print(v1.requires_grad)
+                print(target_q1.requires_grad)
+                print(target_v1.requires_grad)
 
                 loss = self.critic_loss(q1, q2, v1, v2,
                                         target_v1, target_v2,
@@ -407,7 +411,7 @@ class ArcherEval(BatchRollout):
         self.forPlayer = cfg.game.learner.name
         self.eval_rollout_steps = self.cfg.trainer.eval_rollout_steps
         self.eval_instances = cfg.trainer.eval_instances
-        self.batch_size = 64
+        self.batch_size = cfg.trainer.inference_batch_size
         self.game_registry = game_registry
         # Add evaluation-specific callbacks
         self.add_callback(GameRecordCallback(top_dir="eval_results"))
