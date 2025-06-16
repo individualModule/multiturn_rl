@@ -1,5 +1,5 @@
 rollout_steps: 256
-rollout_iterations: 50
+rollout_iterations: 100
 eval_frequency: 5
 eval_episodes: 5
 critic_epochs: 10
@@ -7,14 +7,14 @@ actor_epochs: 2
 max_grad_norm: 0.5
 tau: 0.1 # actual fn is 1-tau so our update is 0.9
 critic_batch_size: 128  
-actor_batch_size: 8    
+actor_batch_size: 32    
 num_workers: 1
-gamma: 0.97
+gamma: 0.98
 eval_instances: "test_instances.json"
 eval_rollout_steps: 40
 warmup_iters: 3
 scale_reward: False
 scaling_factor: 100.00
 is_replay_buffer: True
-step_size: 256
+step_size: 512
 inference_batch_size: 128
