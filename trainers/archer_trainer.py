@@ -390,7 +390,7 @@ class ArcherPlayPen(BatchRollout):
             print(f"Best checkpoint saved at {checkpoint_path} with metric: {current_metric:.2f}")
 
             if buffer:
-                buffer.save_buffer(checkpoint_path)
+                buffer.save_buffer(checkpoint_dir)
 
 
 class ArcherEval(BatchRollout):
