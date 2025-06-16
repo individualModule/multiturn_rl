@@ -31,13 +31,12 @@ class ArcherPlayPen(BatchRollout):
     def __init__(self, learner, teacher, critic, target_critic,
                  critic_optimizer, actor_optimizer,
                  critic_loss, actor_loss, rollout_iterations,
-                 cfg: DictConfig):
+                 cfg: DictConfig, game_registry):
         
         super().__init__(learner, teacher)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.game_spec = None
         self.cfg = cfg  # Fix: Assign cfg to self.cfg
-
         # lora parameters
         self.policy = learner
         # Initialize Archer components
@@ -70,6 +69,8 @@ class ArcherPlayPen(BatchRollout):
         self.warmup_iterations = self.cfg.trainer.warmup_iters
         self.scaling_factor = self.cfg.trainer.scaling_factor
         self.scale_reward = self.cfg.trainer.scale_reward
+
+        self.evaluator = ArcherEval(learner, teacher, cfg, game_registry)
 
         # buffer definition and parameters
         self.is_replay_buffer = self.cfg.trainer.is_replay_buffer
@@ -326,105 +327,9 @@ class ArcherPlayPen(BatchRollout):
         }
 
     def _evaluate_policy(self, current_iteration=None):
-        with torch.no_grad():
-            with make_batch_env(self.game_spec, [self.learner, self.teacher], instances_name=self.eval_instances, batch_size = 64) as eval_env:
-                eval_buffer = StepRolloutBuffer(eval_env)
-
-                # Collect rollouts for evaluation
-                self._collect_rollouts(
-                    game_env=eval_env,
-                    rollout_steps=self.eval_rollout_steps,
-                    rollout_buffer=eval_buffer,
-                    forPlayer=self.forPlayer,
-                    eval=True
-                )
-
-            eval_trajectories = eval_buffer.sample_trajectories()
-
-            # Initialize metrics
-            total_episode_scores = []
-            total_response_scores = []
-            per_episode_response_sum = []
-
-            game_length = []
-
-            min_episode_score = float('inf')
-            max_episode_score = float('-inf')
-
-            # Counters for success, aborted, and lost instances
-            success_count = 0
-            aborted_count = 0
-            lost_count = 0
-
-            # Track individual instance results
-            instance_results = []
-
-            # Process each trajectory
-            for trajectory in eval_trajectories[:-1]:
-                episode_score = 0
-                trajectory_response_sum = 0
-                game_length.append(len(trajectory))
-                for step in trajectory:
-                    # Accumulate response scores for turn-level rewards
-                    if step['done']:
-                        response_score = step['info'].get('episode_score', 0)
-                    else:
-                        response_score = step['info'].get('response_score', 0)
-
-                    total_response_scores.append(response_score)
-                    trajectory_response_sum += response_score
-                    # Update episode score if available
-                    episode_score = step['info'].get('episode_score', episode_score)
-
-                # Track episode-level metrics
-                total_episode_scores.append(episode_score)
-                per_episode_response_sum.append(trajectory_response_sum)
-                min_episode_score = min(min_episode_score, episode_score)
-                max_episode_score = max(max_episode_score, episode_score)
-                # Track success/aborted/lost status for the instance
-                instance_info = trajectory[-1]['info']  # Use the last step's info for status
-                if instance_info['success']:
-                    success_count += 1
-                    status = "success"
-                elif instance_info['aborted']:
-                    aborted_count += 1
-                    status = "aborted"
-                elif instance_info['lost']:
-                    lost_count += 1
-                    status = "lost"
-                else:
-                    status = "unknown"
-
-                instance_results.append({
-                    "instance_id": instance_info.get('game_id', -1),  # Add instance ID if available
-                    "episode_score": episode_score,
-                    "status": status
-                })
-
-            # Calculate metrics
-            metrics = {
-                'eval/average_episode_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
-                'eval/average_turn_reward': sum(total_response_scores) / len(total_response_scores) if total_response_scores else 0,
-                'eval/average_accumulated_reward': sum(per_episode_response_sum) / len(per_episode_response_sum) if per_episode_response_sum else 0,
-                'eval/min_reward': min_episode_score if total_episode_scores else 0,
-                'eval/max_reward': max_episode_score if total_episode_scores else 0,
-                'eval/success_count': success_count,
-                'eval/aborted_count': aborted_count,
-                'eval/lost_count': lost_count,
-                'eval/avg_game_lengtgh' : sum(game_length)/ len(game_length) if len(game_length) > 0 else 0
-            }
-
-            # Log instance results
-            for result in instance_results:
-                wandb.log({
-                    f"eval/instance/{result['instance_id']}/episode_score": result['episode_score'],
-                    f"eval/instance/{result['instance_id']}/status": result['status']
-                })
-
-            # Log overall metrics to wandb
-            wandb.log(metrics)
-
-            eval_buffer.reset()
+        metrics = self.evaluator.evaluate()
+        # Log overall metrics to wandb
+        wandb.log(metrics)
 
         return metrics
 
@@ -486,3 +391,114 @@ class ArcherPlayPen(BatchRollout):
 
             if buffer:
                 buffer.save_buffer(checkpoint_path)
+
+
+class ArcherEval(BatchRollout):
+    def __init__(self, learner, teacher, cfg, game_registry):
+        """
+        Evaluation class for ArcherPlayPen.
+        Args:
+            learner: The learner model.
+            teacher: The teacher model.
+            cfg: Configuration dictionary.
+        """
+        super().__init__(learner, teacher)
+        self.cfg = cfg
+        self.forPlayer = cfg.game.learner.name
+        self.eval_rollout_steps = self.cfg.trainer.eval_rollout_steps
+        self.eval_instances = cfg.trainer.eval_instances
+        self.batch_size = 64
+        self.game_registry = game_registry
+        # Add evaluation-specific callbacks
+        self.add_callback(GameRecordCallback(top_dir="eval_results"))
+        self.add_callback(RolloutProgressCallback(self.eval_rollout_steps))
+        self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
+
+        with make_batch_env(self.game_spec, [self.learner, self.teacher], instances_name=self.eval_instances, batch_size=self.batch_size) as self.eval_env:
+            self.eval_buffer = StepRolloutBuffer(self.eval_env)
+
+    def evaluate(self):
+        """
+        Perform evaluation and return metrics.
+        Args:
+            game_registry: The game registry containing game specifications.
+        Returns:
+            A dictionary of evaluation metrics.
+        """
+        
+
+        # Collect rollouts for evaluation
+        self._collect_rollouts(
+                game_env=self.eval_env,
+                rollout_steps=self.eval_rollout_steps,
+                rollout_buffer=self.eval_buffer,
+                forPlayer=self.forPlayer,
+                eval=True
+            )
+
+            # Process evaluation trajectories
+        eval_trajectories = self.eval_buffer.sample_trajectories()
+        metrics = self._process_trajectories(eval_trajectories)
+
+        self.eval_buffer.reset()
+
+        return metrics
+
+    def _process_trajectories(self, trajectories):
+        """
+        Process evaluation trajectories to compute metrics.
+        Args:
+            trajectories: List of trajectories collected during evaluation.
+        Returns:
+            A dictionary of computed metrics.
+        """
+        total_episode_scores = []
+        total_response_scores = []
+        per_episode_response_sum = []
+        game_length = []
+
+        success_count = 0
+        aborted_count = 0
+        lost_count = 0
+
+        for trajectory in trajectories[:-1]:
+            episode_score = 0
+            trajectory_response_sum = 0
+            game_length.append(len(trajectory))
+
+            for step in trajectory:
+                if step['done']:
+                    response_score = step['info'].get('episode_score', 0)
+                else:
+                    response_score = step['info'].get('response_score', 0)
+
+                total_response_scores.append(response_score)
+                trajectory_response_sum += response_score
+                episode_score = step['info'].get('episode_score', episode_score)
+
+            total_episode_scores.append(episode_score)
+            per_episode_response_sum.append(trajectory_response_sum)
+
+            instance_info = trajectory[-1]['info']
+            if instance_info['success']:
+                print('success')
+                success_count += 1
+            elif instance_info['aborted']:
+                print('aborted')
+
+                aborted_count += 1
+            elif instance_info['lost']:
+                print('lost')
+                lost_count += 1
+
+        metrics = {
+            'eval/average_episode_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
+            'eval/average_turn_reward': sum(total_response_scores) / len(total_response_scores) if total_response_scores else 0,
+            'eval/average_accumulated_reward': sum(per_episode_response_sum) / len(per_episode_response_sum) if per_episode_response_sum else 0,
+            'eval/success_count': success_count,
+            'eval/aborted_count': aborted_count,
+            'eval/lost_count': lost_count,
+            'eval/avg_game_length': sum(game_length) / len(game_length) if game_length else 0
+        }
+
+        return metrics

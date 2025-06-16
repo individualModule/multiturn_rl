@@ -147,7 +147,8 @@ def main(cfg: DictConfig):
         critic_loss=critic_loss,
         actor_loss=actor_loss,
         rollout_iterations=cfg.trainer.rollout_iterations,
-        cfg=cfg
+        cfg=cfg,
+        game_registry = game_registry
     )
     
 
