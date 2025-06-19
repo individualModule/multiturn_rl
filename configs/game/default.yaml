@@ -1,12 +1,12 @@
 spec_name: "codenames"  # Replace with actual game spec name
 
 teacher:
-  model_name: "Unsloth-Llama-3-8B"   # Replace with actual model name
+  model_name: "Meta-Llama-3.1-8B-Instruct"   # Replace with actual model name
   max_tokens: 350
-  temperature: 0
+  temperature: 1.0
   
 learner:
-  model_name: "Unsloth-Llama-3-8B"   # Replace with actual model name
+  model_name: "Meta-Llama-3.1-8B-Instruct"   # Replace with actual model name
   max_tokens: 350
-  temperature: 0.0
+  temperature: 1.0
   name: "Player 2"
