@@ -22,7 +22,7 @@ import hydra
 from omegaconf import DictConfig
 import os 
 
-from clemcore.playpen import BasePlayPenMultiturnTrajectory,BatchRollout, make_env, make_batch_env, StepRolloutBuffer, ReplayBuffer, GameRecordCallback, RolloutProgressCallback
+from clemcore.playpen import BasePlayPenMultiturnTrajectory,BatchRollout, make_env, make_batch_env, BatchRolloutBuffer, BatchReplayBuffer, GameRecordCallback, RolloutProgressCallback
 from clemcore.clemgame import GameRegistry, GameSpec
 from modelling.archer_critic import ArcherAgent, CriticNetwork
 from dataloaders.playpen_dataloader import StepRolloutDataset, FlatBufferDataset, custom_collate_fn
@@ -98,9 +98,9 @@ class ArcherPlayPen(BatchRollout):
             if self.is_replay_buffer:
                 # sample size should be equal to the steps sampled.
                 # need to figure this one out. How many items in the buffer and on how many items do we train? 
-                buffer = ReplayBuffer(env, buffer_size=10000, sample_size=self.step_size)
+                buffer = BatchReplayBuffer(env, buffer_size=10000, sample_size=self.step_size)
             else:
-                buffer = StepRolloutBuffer(env)
+                buffer = BatchRolloutBuffer(env)
 
             # self._collect_rollouts(env, self.rollout_steps, buffer) 
             self._train(buffer, env)
@@ -424,7 +424,7 @@ class ArcherEval(BatchRollout):
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
 
         with make_batch_env(self.game_spec, [self.learner, self.teacher], instances_name=self.eval_instances, batch_size=self.batch_size) as self.eval_env:
-            self.eval_buffer = StepRolloutBuffer(self.eval_env)
+            self.eval_buffer = BatchRolloutBuffer(self.eval_env)
 
     def evaluate(self):
         """
@@ -470,7 +470,9 @@ class ArcherEval(BatchRollout):
         aborted_count = 0
         lost_count = 0
 
-        for trajectory in trajectories[:-1]:
+        for trajectory in trajectories:
+            if not trajectory:
+                continue
             episode_score = 0
             trajectory_response_sum = 0
             game_length.append(len(trajectory))
