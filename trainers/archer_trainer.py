@@ -38,8 +38,11 @@ class ArcherPlayPen(BatchRollout):
         self.game_spec = None
         self.cfg = cfg  # Fix: Assign cfg to self.cfg
         # lora parameters
-        self.policy = learner
+        # self.policy = learner
+        # switched all self.policy to self.learner
         # Initialize Archer components
+        self.learner_name = cfg.game.learner.name
+        self.teacher_name = cfg.game.teacher.name
 
         self.critic = critic
         self.target_critic = target_critic
@@ -47,7 +50,7 @@ class ArcherPlayPen(BatchRollout):
         self.actor_optimizer = actor_optimizer
         self.critic_loss = critic_loss
         self.actor_loss = actor_loss
-        self.agent = ArcherAgent(self.policy, self.critic, self.target_critic, self.cfg.trainer.gamma)
+        self.agent = ArcherAgent(self.learner, self.critic, self.target_critic, self.cfg.trainer.gamma)
         
         # Load parameters from config
         self.critic_epochs = self.cfg.trainer.critic_epochs
@@ -290,7 +293,7 @@ class ArcherPlayPen(BatchRollout):
                 loss = self.actor_loss(advantages, logprobs)
                 loss.backward()
 
-                clip_grad_norm_(self.policy.model.parameters(), self.max_grad_norm)
+                clip_grad_norm_(self.learner.model.parameters(), self.max_grad_norm)
                 self.actor_optimizer.step()
                 lora_grad_metrics = self._monitor_lora_gradients()
                 # Log batch metrics
@@ -343,7 +346,7 @@ class ArcherPlayPen(BatchRollout):
         lora_grads = {}
         
         # Collect LoRA parameter names, values, and gradients
-        for name, param in self.policy.model.named_parameters():
+        for name, param in self.learner.model.named_parameters():
             if 'lora' in name and param.requires_grad:
                 lora_params[name] = param.data.norm().item()
                 if param.grad is not None:
@@ -381,7 +384,7 @@ class ArcherPlayPen(BatchRollout):
             
             checkpoint = {
                 "iteration": iteration,
-                "policy_state_dict": self.policy.model.state_dict(),
+                "policy_state_dict": self.learner.model.state_dict(),
                 "critic_state_dict": self.critic.state_dict(),
                 "target_critic_state_dict": self.target_critic.state_dict(),
                 "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
@@ -409,6 +412,8 @@ class ArcherEval(BatchRollout):
         super().__init__(learner, teacher)
         self.cfg = cfg
         self.forPlayer = cfg.game.learner.name
+        self.learner_name = cfg.game.learner.name
+        self.teacher_name = cfg.game.teacher.name
         self.eval_rollout_steps = self.cfg.trainer.eval_rollout_steps
         self.eval_instances = cfg.trainer.eval_instances
         self.batch_size = cfg.trainer.inference_batch_size
