@@ -3,12 +3,12 @@ defaults:
   - optimizer: default
   - model: default
   - loss: default
-  - game: default
+  - game: wordle
   - lora: default
   - _self_
 
 project_name: archer-rl
-run_name: "Generic - Abort Penalty"
-group: "Penalty Abortion"
+run_name: "GID-Wordle-01"
+group: "Wordle"
 seed: 42
 device: cuda

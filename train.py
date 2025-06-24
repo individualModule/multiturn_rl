@@ -55,20 +55,21 @@ def initialize_game_and_models(cfg: DictConfig):
 
     # get model specs
     learner_spec = ModelSpec.from_string(cfg.game.learner.model_name)
-    teacher_spec = ModelSpec.from_string(cfg.game.teacher.model_name)
-
     # Load learner and teacher model specs
     learner_spec = model_registry.get_first_model_spec_that_unify_with(learner_spec)
-    teacher_spec = model_registry.get_first_model_spec_that_unify_with(teacher_spec)
-
     # Load learner and teacher models
     learner_backend = backend_registry.get_backend_for(learner_spec.backend)
     learner = learner_backend.get_model_for(learner_spec)
     learner.set_gen_args(temperature = cfg.game.learner.temperature, max_tokens=cfg.game.learner.max_tokens)
 
-    teacher_backend = backend_registry.get_backend_for(teacher_spec.backend)
-    teacher = teacher_backend.get_model_for(teacher_spec)
-    teacher.set_gen_args(temperature = cfg.game.teacher.temperature, max_tokens=cfg.game.teacher.max_tokens)
+    if cfg.game.teacher.model_name:
+        teacher_spec = ModelSpec.from_string(cfg.game.teacher.model_name)
+        teacher_spec = model_registry.get_first_model_spec_that_unify_with(teacher_spec)
+        teacher_backend = backend_registry.get_backend_for(teacher_spec.backend)
+        teacher = teacher_backend.get_model_for(teacher_spec)
+        teacher.set_gen_args(temperature = cfg.game.teacher.temperature, max_tokens=cfg.game.teacher.max_tokens)
+    else:
+        teacher = None
 
     return game_registry, learner, teacher
 

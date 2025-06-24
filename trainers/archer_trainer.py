@@ -92,9 +92,9 @@ class ArcherPlayPen(BatchRollout):
     def learn_interactive(self, game_registry: GameRegistry):
         # Select game spec you want to train on
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
-
+        players = [self.learner, self.teacher] if self.teacher else [self.learner]
         # Create environment and buffer
-        with make_batch_env(self.game_spec, [self.learner, self.teacher], shuffle_instances = True, batch_size = self.inference_batch_size) as env:
+        with make_batch_env(self.game_spec, players, shuffle_instances = True, batch_size = self.inference_batch_size) as env:
             if self.is_replay_buffer:
                 # sample size should be equal to the steps sampled.
                 # need to figure this one out. How many items in the buffer and on how many items do we train? 
@@ -422,8 +422,8 @@ class ArcherEval(BatchRollout):
         self.add_callback(GameRecordCallback(top_dir="eval_results"))
         self.add_callback(RolloutProgressCallback(self.eval_rollout_steps))
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
-
-        with make_batch_env(self.game_spec, [self.learner, self.teacher], instances_name=self.eval_instances, batch_size=self.batch_size) as self.eval_env:
+        players = [self.learner, self.teacher] if self.teacher else [self.learner]
+        with make_batch_env(self.game_spec, players, instances_name=self.eval_instances, batch_size=self.batch_size) as self.eval_env:
             self.eval_buffer = BatchRolloutBuffer(self.eval_env)
 
     def evaluate(self):
