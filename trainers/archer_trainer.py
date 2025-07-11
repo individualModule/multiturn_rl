@@ -133,7 +133,10 @@ class ArcherPlayPen(BatchRollout):
                                                   scaled_reward=self.scale_reward, scaling_factor=self.scaling_factor, buffer=buffer)
 
             if iteration >= self.warmup_iterations:
-                actor_metrics = self._update_actor(self.actor_epochs, buffer=buffer)
+                actor_metrics = self._update_actor(self.actor_epochs,
+                                                   scaled_reward=self.scale_reward,
+                                                   scaling_factor=self.scaling_factor,
+                                                    buffer=buffer)
             else:
                 actor_metrics = {"actor/avg_loss": None, "actor/epochs": 0}  # Placeholder metrics for warmup
                 
@@ -251,7 +254,7 @@ class ArcherPlayPen(BatchRollout):
             "critic/epochs": critic_epochs
         }
 
-    def _update_actor(self, actor_epochs, buffer):
+    def _update_actor(self, actor_epochs, scaled_reward=False, scaling_factor=100.0, buffer=None):
         epoch_losses = []
         
         for e in range(actor_epochs):
@@ -278,6 +281,11 @@ class ArcherPlayPen(BatchRollout):
 
                 self.actor_optimizer.zero_grad()
                 # fetches both logprob and actions in a batch
+
+                if scaled_reward:
+                    batch['reward'] = batch['reward'] / scaling_factor
+
+
                 pi_action, logprobs = self.agent.get_policy_action(batch['obs'], get_logprob=True) 
                 q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
                 #take minumum of q and minimum of v
