@@ -6,8 +6,8 @@ critic_epochs: 10
 actor_epochs: 2
 max_grad_norm: 0.5
 tau: 0.1 # actual fn is 1-tau so our update is 0.9
-critic_batch_size: 96  
-actor_batch_size: 4   
+critic_batch_size: 64  
+actor_batch_size: 6   
 num_workers: 1
 gamma: 0.98
 eval_instances: "instances_v1.6.json"

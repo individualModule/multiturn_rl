@@ -146,7 +146,8 @@ class ArcherPlayPen(BatchRollout):
                     **critic_metrics,
                     **actor_metrics
                 })
-
+            # save checkpoint every iter
+            self._save_checkpoint(iteration, buffer=buffer)            
             # replay buffer has no reset - pop mechanism (oldest samples are popped)
             if not self.is_replay_buffer:
                 buffer.reset()
@@ -379,33 +380,45 @@ class ArcherPlayPen(BatchRollout):
         
         return metrics
     
-    def _save_checkpoint(self, iteration, eval_metrics, buffer=None):
+    def _save_checkpoint(self, iteration, eval_metrics=None, buffer=None):
         """Save training checkpoint if the metric improves."""
         checkpoint_dir = "checkpoints"
         os.makedirs(checkpoint_dir, exist_ok=True)
+        checkpoint = {
+                    "iteration": iteration,
+                    "policy_state_dict": self.learner.model.state_dict(),
+                    "critic_state_dict": self.critic.state_dict(),
+                    "target_critic_state_dict": self.target_critic.state_dict(),
+                    "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
+                    "actor_optimizer_state_dict": self.actor_optimizer.state_dict(),
+                    "config": self.cfg,
+                    "best_metric": self.best_metric
+                }
+        if eval_metrics:
+            current_metric = eval_metrics['eval/average_accumulated_reward']
+            if current_metric > self.best_metric:
+                self.best_metric = current_metric
+                best_checkpoint_path = os.path.join(checkpoint_dir, "best_checkpoint.pt")
+                torch.save(checkpoint, best_checkpoint_path)
+                print(f"Best checkpoint saved at {best_checkpoint_path} with metric: {current_metric:.2f}")
+                if buffer:
+                    best_buffer_path = os.path.join(checkpoint_dir, "best_buffer.pkl")
+                    buffer.save_buffer(best_buffer_path, default_name = False)
+                    print(f"Best buffer saved at {best_buffer_path}")
 
+        else:
         # Use a key metric to determine if this is the best checkpoint
-        current_metric = eval_metrics['eval/average_accumulated_reward']  # Example: average reward
-        if current_metric > self.best_metric:
-            self.best_metric = current_metric
-            checkpoint_path = os.path.join(checkpoint_dir, f"best_checkpoint.pt")
-            
-            checkpoint = {
-                "iteration": iteration,
-                "policy_state_dict": self.learner.model.state_dict(),
-                "critic_state_dict": self.critic.state_dict(),
-                "target_critic_state_dict": self.target_critic.state_dict(),
-                "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
-                "actor_optimizer_state_dict": self.actor_optimizer.state_dict(),
-                "config": self.cfg,
-                "best_metric": self.best_metric
-            }
-            
-            torch.save(checkpoint, checkpoint_path)
-            print(f"Best checkpoint saved at {checkpoint_path} with metric: {current_metric:.2f}")
-
+                
+            latest_checkpoint_path = os.path.join(checkpoint_dir, "latest_checkpoint.pt")
+            torch.save(checkpoint, latest_checkpoint_path)
+            print(f"New checkpoint saved at {latest_checkpoint_path}")
             if buffer:
-                buffer.save_buffer(checkpoint_dir)
+                latest_buffer_path = os.path.join(checkpoint_dir, "latest_buffer.pkl")
+                buffer.save_buffer(latest_buffer_path, default_name=False)
+
+
+            with open(os.path.join(checkpoint_dir, "latest_checkpoint.txt"), "w") as f:
+                f.write(str(iteration))
 
 
 class ArcherEval(BatchRollout):
