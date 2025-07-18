@@ -68,6 +68,8 @@ class ArcherPlayPen(BatchRollout):
         self.critic_batch_size = self.cfg.trainer.critic_batch_size
         self.num_workers = self.cfg.trainer.num_workers
         self.max_grad_norm = self.cfg.trainer.max_grad_norm
+        self.actor_grad_accum_steps = self.cfg.trainer.actor_grad_accum_steps
+        self.critic_grad_accum_steps = self.cfg.trainer.critic_grad_accum_steps
         self.tau = self.cfg.trainer.tau
         self.warmup_iterations = self.cfg.trainer.warmup_iters
         self.scaling_factor = self.cfg.trainer.scaling_factor
@@ -194,9 +196,9 @@ class ArcherPlayPen(BatchRollout):
                                     collate_fn=custom_collate_fn
                                 )
 
-            for batch in tqdm(dataloader):
+            for inx, batch in enumerate(tqdm(dataloader)):
                 batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
-                self.critic_optimizer.zero_grad()
+                # self.critic_optimizer.zero_grad()
 
                 # Scale rewards if scaled_reward is True
                 # TODO - need to implement this in the actor as well
@@ -219,31 +221,33 @@ class ArcherPlayPen(BatchRollout):
                                         target_q1, target_q2)
 
                 loss.backward()
-                clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
 
-                self.critic_optimizer.step()
-                self.agent.soft_target_update(self.target_critic, self.critic, self.tau)
-                
 
-                with torch.no_grad():
-                    # Log batch metrics
-                    metrics = {
-                        "critic/loss": loss.item(),
-                        "critic/q1_mean": q1.mean().item(),
-                        "critic/q2_mean": q2.mean().item(),
-                        "critic/v1_mean": v1.mean().item(),
-                        "critic/v2_mean": v2.mean().item(),
-                        "critic/q1_min": q1.min().item(),
-                        "critic/q1_max": q1.max().item(),
-                        "critic/q2_min": q2.min().item(),
-                        "critic/q2_max": q2.max().item(),
-                        "critic/v1_min": v1.min().item(),
-                        "critic/v1_max": v1.max().item(),
-                        "critic/v2_min": v2.min().item(),
-                        "critic/v2_max": v2.max().item(),
-                        "critic/epoch": e
-                    }
-                wandb.log(metrics)
+                if (inx+1) % self.critic_grad_accum_steps == 0 or (inx+1) == len(dataloader):
+                    clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
+                    self.critic_optimizer.step()
+                    self.agent.soft_target_update(self.target_critic, self.critic, self.tau)
+                    self.critic_optimizer.zero_grad()
+
+                    with torch.no_grad():
+                        # Log batch metrics
+                        metrics = {
+                            "critic/loss": loss.item(),
+                            "critic/q1_mean": q1.mean().item(),
+                            "critic/q2_mean": q2.mean().item(),
+                            "critic/v1_mean": v1.mean().item(),
+                            "critic/v2_mean": v2.mean().item(),
+                            "critic/q1_min": q1.min().item(),
+                            "critic/q1_max": q1.max().item(),
+                            "critic/q2_min": q2.min().item(),
+                            "critic/q2_max": q2.max().item(),
+                            "critic/v1_min": v1.min().item(),
+                            "critic/v1_max": v1.max().item(),
+                            "critic/v2_min": v2.min().item(),
+                            "critic/v2_max": v2.max().item(),
+                            "critic/epoch": e
+                        }
+                    wandb.log(metrics)
                 
                 epoch_loss += loss.item()
                 num_batches += 1
@@ -277,10 +281,9 @@ class ArcherPlayPen(BatchRollout):
 
             epoch_loss = 0
             num_batches = 0
-            for batch in tqdm(dataloader):
+            for inx, batch in enumerate(tqdm(dataloader)):
                 batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
 
-                self.actor_optimizer.zero_grad()
                 # fetches both logprob and actions in a batch
 
                 if scaled_reward:
@@ -301,36 +304,39 @@ class ArcherPlayPen(BatchRollout):
                 print(advantages.requires_grad)  # Should be True
                 loss = self.actor_loss(advantages, logprobs)
                 loss.backward()
+                if (inx+1) % self.actor_grad_accum_steps == 0 or (inx+1) == len(dataloader):
 
-                clip_grad_norm_(self.learner.model.parameters(), self.max_grad_norm)
-                self.actor_optimizer.step()
-                lora_grad_metrics = self._monitor_lora_gradients()
-                # Log batch metrics
-                with torch.no_grad():
-                    metrics = {
-                        "actor/loss": loss.item(),
-                        "actor/advantages_mean": advantages.mean().item(),
-                        "actor/logprobs_mean": logprobs.mean().item(),
-                        "actor/logprobs_min": logprobs.min().item(),
-                        "actor/logprobs_max": logprobs.max().item(),
-                        "actor/q1_mean": q1.mean().item(),
-                        "actor/q2_mean": q2.mean().item(),
-                        "actor/v1_mean": v1.mean().item(),
-                        "actor/v2_mean": v2.mean().item(),
-                        "actor/q1_min": q1.min().item(),
-                        "actor/q1_max": q1.max().item(),
-                        "actor/q2_min": q2.min().item(),
-                        "actor/q2_max": q2.max().item(),
-                        "actor/v1_min": v1.min().item(),
-                        "actor/v1_max": v1.max().item(),
-                        "actor/v2_min": v2.min().item(),
-                        "actor/v2_max": v2.max().item(),
-                        "actor/epoch": e
-                    }
+                    clip_grad_norm_(self.learner.model.parameters(), self.max_grad_norm)
+                    self.actor_optimizer.step()
+                    lora_grad_metrics = self._monitor_lora_gradients()
+                    self.actor_optimizer.zero_grad()
 
-                    metrics.update(lora_grad_metrics)  # Add to existing metrics dictionary
+                    # Log batch metrics
+                    with torch.no_grad():
+                        metrics = {
+                            "actor/loss": loss.item(),
+                            "actor/advantages_mean": advantages.mean().item(),
+                            "actor/logprobs_mean": logprobs.mean().item(),
+                            "actor/logprobs_min": logprobs.min().item(),
+                            "actor/logprobs_max": logprobs.max().item(),
+                            "actor/q1_mean": q1.mean().item(),
+                            "actor/q2_mean": q2.mean().item(),
+                            "actor/v1_mean": v1.mean().item(),
+                            "actor/v2_mean": v2.mean().item(),
+                            "actor/q1_min": q1.min().item(),
+                            "actor/q1_max": q1.max().item(),
+                            "actor/q2_min": q2.min().item(),
+                            "actor/q2_max": q2.max().item(),
+                            "actor/v1_min": v1.min().item(),
+                            "actor/v1_max": v1.max().item(),
+                            "actor/v2_min": v2.min().item(),
+                            "actor/v2_max": v2.max().item(),
+                            "actor/epoch": e
+                        }
 
-                wandb.log(metrics)
+                        metrics.update(lora_grad_metrics)  # Add to existing metrics dictionary
+
+                        wandb.log(metrics)
                 
                 epoch_loss += loss.item()
                 num_batches += 1
