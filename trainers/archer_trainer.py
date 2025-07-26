@@ -22,10 +22,10 @@ import hydra
 from omegaconf import DictConfig
 import os 
 
-from clemcore.playpen import BasePlayPenMultiturnTrajectory,BatchRollout, make_env, make_batch_env, BatchRolloutBuffer, BatchReplayBuffer, GameRecordCallback, RolloutProgressCallback
-from clemcore.clemgame import GameRegistry, GameSpec
-from modelling.archer_critic import ArcherAgent, CriticNetwork
-from dataloaders.playpen_dataloader import StepRolloutDataset, FlatBufferDataset, custom_collate_fn
+from clemcore.playpen import BatchRollout, make_batch_env, make_eval_env, BatchRolloutBuffer, BatchReplayBuffer, GameRecordCallback, RolloutProgressCallback
+from clemcore.clemgame import GameRegistry
+from modelling.archer_critic import ArcherAgent
+from dataloaders.playpen_dataloader import FlatBufferDataset, custom_collate_fn
 
 class ArcherPlayPen(BatchRollout):
     def __init__(self, learner, teacher, critic, target_critic,
@@ -436,22 +436,25 @@ class ArcherEval(BatchRollout):
             teacher: The teacher model.
             cfg: Configuration dictionary.
         """
+
+        # need to reorder stuff here so that the total steps == total eval instances.
         super().__init__(learner, teacher)
         self.cfg = cfg
         self.forPlayer = cfg.game.learner.name
         self.learner_name = cfg.game.learner.name
         self.teacher_name = cfg.game.teacher.name
-        self.eval_rollout_steps = self.cfg.trainer.eval_rollout_steps
+        # self.eval_rollout_steps = self.cfg.trainer.eval_rollout_steps
         self.eval_instances = cfg.trainer.eval_instances
         self.batch_size = cfg.trainer.inference_batch_size
         self.game_registry = game_registry
         # Add evaluation-specific callbacks
         self.add_callback(GameRecordCallback(top_dir="eval_results"))
-        self.add_callback(RolloutProgressCallback(self.eval_rollout_steps))
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
         players = [self.learner, self.teacher] if self.teacher else [self.learner]
-        with make_batch_env(self.game_spec, players, instances_name=self.eval_instances, batch_size=self.batch_size) as self.eval_env:
+        with make_eval_env(self.game_spec, players, shuffle_instances = False, instances_name=self.eval_instances, batch_size=self.batch_size) as self.eval_env:
             self.eval_buffer = BatchRolloutBuffer(self.eval_env)
+
+        self.add_callback(RolloutProgressCallback(self.eval_env.get_rollout_length()))
 
     def evaluate(self):
         """
@@ -467,10 +470,8 @@ class ArcherEval(BatchRollout):
         # Collect rollouts for evaluation
         self._collect_rollouts(
                 game_env=self.eval_env,
-                rollout_steps=self.eval_rollout_steps,
                 rollout_buffer=self.eval_buffer,
                 forPlayer=self.forPlayer,
-                eval=True
             )
 
             # Process evaluation trajectories
@@ -478,12 +479,11 @@ class ArcherEval(BatchRollout):
         metrics = self._process_trajectories(eval_trajectories)
 
         self.eval_buffer.reset()
-
         # revert temp back to default
         self.learner.set_gen_args(temperature = self.cfg.game.learner.temperature,
                                    max_tokens=self.cfg.game.learner.max_tokens)
 
-
+        
         return metrics
 
     def _process_trajectories(self, trajectories):
@@ -535,6 +535,7 @@ class ArcherEval(BatchRollout):
                 print('lost')
                 lost_count += 1
 
+        print(f"Total evaluated episodes: {len(total_episode_scores)}")
         metrics = {
             'eval/average_episode_reward': sum(total_episode_scores) / len(total_episode_scores) if total_episode_scores else 0,
             'eval/average_turn_reward': sum(total_response_scores) / len(total_response_scores) if total_response_scores else 0,
