@@ -1,4 +1,4 @@
-rollout_steps: 128
+rollout_steps: 1
 rollout_iterations: 100
 eval_frequency: 5
 eval_episodes: 5
@@ -11,7 +11,7 @@ actor_batch_size: 4
 num_workers: 1
 gamma: 0.98
 eval_instances: "instances_v1.6.json"
-eval_rollout_steps: 128
+eval_rollout_steps: 36
 warmup_iters: 10
 scale_reward: True
 scaling_factor: 100.00

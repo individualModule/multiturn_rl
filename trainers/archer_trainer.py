@@ -461,7 +461,8 @@ class ArcherEval(BatchRollout):
         Returns:
             A dictionary of evaluation metrics.
         """
-        
+        # set temp to 0
+        self.learner.set_gen_args(temperature=0, max_tokens=self.cfg.game.learner.max_tokens)
 
         # Collect rollouts for evaluation
         self._collect_rollouts(
@@ -477,6 +478,11 @@ class ArcherEval(BatchRollout):
         metrics = self._process_trajectories(eval_trajectories)
 
         self.eval_buffer.reset()
+
+        # revert temp back to default
+        self.learner.set_gen_args(temperature = self.cfg.game.learner.temperature,
+                                   max_tokens=self.cfg.game.learner.max_tokens)
+
 
         return metrics
 
