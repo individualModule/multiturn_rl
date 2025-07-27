@@ -22,7 +22,7 @@ import hydra
 from omegaconf import DictConfig
 import os 
 
-from clemcore.playpen import BatchRollout, make_batch_env, make_eval_env, BatchRolloutBuffer, BatchReplayBuffer, GameRecordCallback, RolloutProgressCallback
+from clemcore.playpen import EvalBatchRollout, BatchRollout, make_batch_env, make_eval_env, BatchRolloutBuffer, BatchReplayBuffer, GameRecordCallback, RolloutProgressCallback
 from clemcore.clemgame import GameRegistry
 from modelling.archer_critic import ArcherAgent
 from dataloaders.playpen_dataloader import FlatBufferDataset, custom_collate_fn
@@ -80,7 +80,7 @@ class ArcherPlayPen(BatchRollout):
         # buffer definition and parameters
         self.is_replay_buffer = self.cfg.trainer.is_replay_buffer
 
-        self.add_callback(GameRecordCallback())
+        self.add_callback(GameRecordCallback(top_dir=f"playpen/{self.cfg.run_name}"))
         self.add_callback(RolloutProgressCallback(self.rollout_steps))
 
         self.best_metric = float('-inf')
@@ -387,12 +387,21 @@ class ArcherPlayPen(BatchRollout):
         return metrics
     
     def _save_checkpoint(self, iteration, eval_metrics=None, buffer=None):
-        """Save training checkpoint if the metric improves."""
+        """Save training checkpoint if the metric improves.
+        
+        Probably does not work well - must revisit and ensure it loads properly.
+        """
         checkpoint_dir = "checkpoints"
         os.makedirs(checkpoint_dir, exist_ok=True)
+
+        lora_state_dict = {
+                name: param for name, param in self.learner.model.state_dict().items() if 'lora' in name
+            }
+
+
         checkpoint = {
                     "iteration": iteration,
-                    "policy_state_dict": self.learner.model.state_dict(),
+                    "lora_state_dict": lora_state_dict, # save only lora layers
                     "critic_state_dict": self.critic.state_dict(),
                     "target_critic_state_dict": self.target_critic.state_dict(),
                     "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
@@ -404,11 +413,11 @@ class ArcherPlayPen(BatchRollout):
             current_metric = eval_metrics['eval/average_accumulated_reward']
             if current_metric > self.best_metric:
                 self.best_metric = current_metric
-                best_checkpoint_path = os.path.join(checkpoint_dir, "best_checkpoint.pt")
+                best_checkpoint_path = os.path.join(checkpoint_dir, f"{self.cfg.run_name}_best_checkpoint.pt")
                 torch.save(checkpoint, best_checkpoint_path)
                 print(f"Best checkpoint saved at {best_checkpoint_path} with metric: {current_metric:.2f}")
                 if buffer:
-                    best_buffer_path = os.path.join(checkpoint_dir, "best_buffer.pkl")
+                    best_buffer_path = os.path.join(checkpoint_dir, f"{self.cfg.run_name}_best_buffer.pkl")
                     buffer.save_buffer(best_buffer_path, default_name = False)
                     print(f"Best buffer saved at {best_buffer_path}")
 
@@ -427,7 +436,7 @@ class ArcherPlayPen(BatchRollout):
                 f.write(str(iteration))
 
 
-class ArcherEval(BatchRollout):
+class ArcherEval(EvalBatchRollout):
     def __init__(self, learner, teacher, cfg, game_registry):
         """
         Evaluation class for ArcherPlayPen.
@@ -448,7 +457,7 @@ class ArcherEval(BatchRollout):
         self.batch_size = cfg.trainer.inference_batch_size
         self.game_registry = game_registry
         # Add evaluation-specific callbacks
-        self.add_callback(GameRecordCallback(top_dir="eval_results"))
+        self.add_callback(GameRecordCallback(top_dir=f"eval_results/{self.cfg.run_name}", store_instance=True))
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
         players = [self.learner, self.teacher] if self.teacher else [self.learner]
         with make_eval_env(self.game_spec, players, shuffle_instances = False, instances_name=self.eval_instances, batch_size=self.batch_size) as self.eval_env:

@@ -12,7 +12,7 @@ from modelling.archer_critic import DoubleCritic
 
 
 
-def load_checkpoint(checkpoint_path, trainer):
+def load_checkpoint(checkpoint_path, trainer, lora_config):
     """
     Load a checkpoint and restore the trainer's state.
 
@@ -22,14 +22,24 @@ def load_checkpoint(checkpoint_path, trainer):
 
     Returns:
         int: The iteration to resume training from.
+
+
+    !!!!! Probably does not work well - must revisit and ensure it loads properly.!!!!
+
     """
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
 
     checkpoint = torch.load(checkpoint_path)
 
+    # Reinitialize LoRA layers and mount them on the model
+    trainer.learner.model = get_peft_model(trainer.learner.model, lora_config)
+
     # Restore model and optimizer states
-    trainer.policy.load_state_dict(checkpoint["policy_state_dict"])
+    # Load LoRA parameters from the checkpoint
+    trainer.learner.model.load_state_dict(checkpoint["lora_state_dict"], strict=False)
+
+    # trainer.policy.load_state_dict(checkpoint["policy_state_dict"])
     trainer.critic.load_state_dict(checkpoint["critic_state_dict"])
     trainer.target_critic.load_state_dict(checkpoint["target_critic_state_dict"])
     trainer.critic_optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
