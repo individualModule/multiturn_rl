@@ -198,6 +198,7 @@ class ArcherAgent(nn.Module):
         with torch.no_grad():
             obs = copy.deepcopy(observation)
             pi_action = self.get_policy_action(obs)
+            # print(pi_action)
             target_q1, target_q2, _ , _ = self.target_critic(obs, pi_action)
         
             assert target_q1.size(0) == len(observation), "Batch size mismatch"
@@ -221,8 +222,12 @@ class ArcherAgent(nn.Module):
 
             done = done.float()  # Convert to float for multiplication
             _, _ , target_v1, target_v2 = self.target_critic(next_observation, copy.deepcopy(action))
+            print(target_v1)
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
             target_v1 = reward + (1 - done)*target_v1*self.gamma
             target_v2 = reward + (1 - done)*target_v2*self.gamma
+            print(target_v1)
+            print('$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$')
 
         return target_v1, target_v2
     

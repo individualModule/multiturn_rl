@@ -229,10 +229,15 @@ class ArcherPlayPen(BatchRollout):
                                         target_q1, target_q2)
 
                 loss.backward()
+                # Log gradient norms
+                grad_norms = {}
+                for name, param in self.critic.named_parameters():
+                    if param.grad is not None:
+                        grad_norms[f"critic_grad/{name}"] = param.grad.norm().item()
 
 
                 if (inx+1) % self.critic_grad_accum_steps == 0 or (inx+1) == len(dataloader):
-                    clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
+                    clip_grad_norm_(self.critic.parameters(), self.critic_max_grad_norm)
                     self.critic_optimizer.step()
                     self.agent.soft_target_update(self.target_critic, self.critic, self.tau)
                     self.critic_optimizer.zero_grad()
@@ -253,8 +258,31 @@ class ArcherPlayPen(BatchRollout):
                             "critic/v1_max": v1.max().item(),
                             "critic/v2_min": v2.min().item(),
                             "critic/v2_max": v2.max().item(),
-                            "critic/epoch": e
+                            "critic/q1_std": q1.std().item(),
+                            "critic/q2_std": q2.std().item(),
+                            "critic/v1_std": v1.std().item(),
+                            "critic/v2_std": v2.std().item(),
+                            "critic/epoch": e,
+                            "target/target_q1_mean": target_q1.mean().item(),
+                            "target/target_q2_mean": target_q2.mean().item(),
+                            "target/target_v1_mean": target_v1.mean().item(),
+                            "target/target_v2_mean": target_v2.mean().item(),
+                            "target/target_q1_min": target_q1.min().item(),
+                            "target/target_q1_max": target_q1.max().item(),
+                            "target/target_q2_min": target_q2.min().item(),
+                            "target/target_q2_max": target_q2.max().item(),
+                            "target/target_v1_min": target_v1.min().item(),
+                            "target/target_v1_max": target_v1.max().item(),
+                            "target/target_v2_min": target_v2.min().item(),
+                            "target/target_v2_max": target_v2.max().item(),
+                            "target/target_q1_std": target_q1.std().item(),
+                            "target/target_q2_std": target_q2.std().item(),
+                            "target/target_v1_std": target_v1.std().item(),
+                            "target/target_v2_std": target_v2.std().item(),
+
                         }
+                    metrics.update(grad_norms)  # Add gradient norms to metrics
+
                     wandb.log(metrics)
                 
                 epoch_loss += loss.item()
