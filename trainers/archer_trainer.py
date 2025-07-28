@@ -12,6 +12,7 @@ Writing this code for:
 
 - in the original code, sample function only takes a single observation - not the entire trajectory.
 """
+import pickle
 
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
@@ -68,6 +69,7 @@ class ArcherPlayPen(BatchRollout):
         self.critic_batch_size = self.cfg.trainer.critic_batch_size
         self.num_workers = self.cfg.trainer.num_workers
         self.max_grad_norm = self.cfg.trainer.max_grad_norm
+        self.critic_max_grad_norm = self.cfg.trainer.critic_max_grad_norm
         self.actor_grad_accum_steps = self.cfg.trainer.actor_grad_accum_steps
         self.critic_grad_accum_steps = self.cfg.trainer.critic_grad_accum_steps
         self.tau = self.cfg.trainer.tau
@@ -75,6 +77,7 @@ class ArcherPlayPen(BatchRollout):
         self.scaling_factor = self.cfg.trainer.scaling_factor
         self.scale_reward = self.cfg.trainer.scale_reward
         self.inference_batch_size = self.cfg.trainer.inference_batch_size
+        self.buffer_size = self.cfg.trainer.buffer_size
         self.evaluator = ArcherEval(learner, teacher, cfg, game_registry)
 
         # buffer definition and parameters
@@ -100,7 +103,7 @@ class ArcherPlayPen(BatchRollout):
             if self.is_replay_buffer:
                 # sample size should be equal to the steps sampled.
                 # need to figure this one out. How many items in the buffer and on how many items do we train? 
-                buffer = BatchReplayBuffer(env, buffer_size=10000, sample_size=self.step_size)
+                buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
             else:
                 buffer = BatchRolloutBuffer(env)
 
@@ -188,6 +191,11 @@ class ArcherPlayPen(BatchRollout):
                 raise ValueError("Dataset is empty after maximum retries. Please check data preparation.")
 
             print("Dataset size:", len(dataset))
+
+            # with open("critic_dataset.pkl", "wb") as f:
+            #     pickle.dump(dataset, f)
+            # print("Dataset saved to critic_dataset.pkl")
+
 
             dataloader = DataLoader(
                                     dataset,
