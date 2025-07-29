@@ -117,12 +117,13 @@ class ArcherPlayPen(BatchRollout):
         for iteration in range(self.rollout_iterations):
             torch.cuda.empty_cache() # empty cache ocassionally
             # Collect trajectories
-            self._collect_rollouts(game_env = env,
+            rollout_metrics = self._collect_rollouts(game_env = env,
                                    rollout_steps = self.rollout_steps,
                                    rollout_buffer = buffer,
                                    forPlayer = self.forPlayer ) # use this also to collect eval data
+            wandb.log(rollout_metrics)
             # Run evaluation if it's time
-            if iteration % self.eval_frequency == 0:
+            if iteration % self.eval_frequency == 0 and (iteration == 0 or iteration > self.warmup_iterations):
                 eval_metrics = self._evaluate_policy(current_iteration=iteration)
                 print(f"Initial evaluation:", 
                     f"Average Reward: {eval_metrics['eval/average_episode_reward']:.2f},",
@@ -207,6 +208,8 @@ class ArcherPlayPen(BatchRollout):
             for inx, batch in enumerate(tqdm(dataloader)):
                 batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
                 # self.critic_optimizer.zero_grad()
+                batch_stats = self._compute_batch_statistics(batch)
+                wandb.log({f"batch_stats/{key}": val for key, val in batch_stats.items()})
 
                 # Scale rewards if scaled_reward is True
                 # TODO - need to implement this in the actor as well
@@ -471,7 +474,22 @@ class ArcherPlayPen(BatchRollout):
             with open(os.path.join(checkpoint_dir, "latest_checkpoint.txt"), "w") as f:
                 f.write(str(iteration))
 
-
+    def _compute_batch_statistics(self, batch):
+        """
+        Compute statistics for a given batch of data.
+        Args:
+            batch: A dictionary containing batch data.
+        Returns:
+            A dictionary of computed statistics.
+        """
+        stats = {}
+        for key, value in batch.items():
+            if isinstance(value, torch.Tensor) and value.ndim > 0:  # Only compute stats for tensors
+                stats[f"{key}_mean"] = value.mean().item()
+                stats[f"{key}_std"] = value.std().item()
+                stats[f"{key}_min"] = value.min().item()
+                stats[f"{key}_max"] = value.max().item()
+        return stats
 class ArcherEval(EvalBatchRollout):
     def __init__(self, learner, teacher, cfg, game_registry):
         """

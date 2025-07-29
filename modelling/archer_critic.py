@@ -222,12 +222,8 @@ class ArcherAgent(nn.Module):
 
             done = done.float()  # Convert to float for multiplication
             _, _ , target_v1, target_v2 = self.target_critic(next_observation, copy.deepcopy(action))
-            print(target_v1)
-            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
             target_v1 = reward + (1 - done)*target_v1*self.gamma
             target_v2 = reward + (1 - done)*target_v2*self.gamma
-            print(target_v1)
-            print('$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$')
 
         return target_v1, target_v2
     
@@ -272,6 +268,9 @@ class TDLoss(nn.Module):
         q2_loss = self.criterion(q2, target_v2)
         v1_loss = self.criterion(v1, target_q1)
         v2_loss = self.criterion(v2, target_q2)
+        print(f"critic losses: ")
+        print(f"Q1: {q1} -- TV1 {target_v1} == loss {q1_loss}")
+        print(f"V1: {v1} -- TV1 {target_q1} == loss {v1_loss}")
 
         loss = q1_loss + q2_loss + v1_loss + v2_loss
         return loss
