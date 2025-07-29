@@ -268,9 +268,9 @@ class TDLoss(nn.Module):
         q2_loss = self.criterion(q2, target_v2)
         v1_loss = self.criterion(v1, target_q1)
         v2_loss = self.criterion(v2, target_q2)
-        print(f"critic losses: ")
-        print(f"Q1: {q1} -- TV1 {target_v1} == loss {q1_loss}")
-        print(f"V1: {v1} -- TV1 {target_q1} == loss {v1_loss}")
+        # print(f"critic losses: ")
+        # print(f"Q1: {q1} -- TV1 {target_v1} == loss {q1_loss}")
+        # print(f"V1: {v1} -- TV1 {target_q1} == loss {v1_loss}")
 
         loss = q1_loss + q2_loss + v1_loss + v2_loss
         return loss
