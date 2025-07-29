@@ -208,9 +208,6 @@ class ArcherPlayPen(BatchRollout):
             for inx, batch in enumerate(tqdm(dataloader)):
                 batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
                 # self.critic_optimizer.zero_grad()
-                batch_stats = self._compute_batch_statistics(batch)
-                wandb.log({f"batch_stats/{key}": val for key, val in batch_stats.items()})
-
                 # Scale rewards if scaled_reward is True
                 # TODO - need to implement this in the actor as well
                 if scaled_reward:
@@ -355,6 +352,9 @@ class ArcherPlayPen(BatchRollout):
                         metrics = {
                             "actor/loss": loss.item(),
                             "actor/advantages_mean": advantages.mean().item(),
+                            "actor/advantages_min": advantages.min().item(),
+                            "actor/advantages_max": advantages.max().item(),
+                            "actor/advantages_std": advantages.std().item(),
                             "actor/logprobs_mean": logprobs.mean().item(),
                             "actor/logprobs_min": logprobs.min().item(),
                             "actor/logprobs_max": logprobs.max().item(),
@@ -370,6 +370,10 @@ class ArcherPlayPen(BatchRollout):
                             "actor/v1_max": v1.max().item(),
                             "actor/v2_min": v2.min().item(),
                             "actor/v2_max": v2.max().item(),
+                            "actor/q1_std": q1.std().item(),
+                            "actor/q2_std": q2.std().item(),
+                            "actor/v1_std": v1.std().item(),
+                            "actor/v2_std": v2.std().item(),
                             "actor/epoch": e
                         }
 
@@ -474,22 +478,6 @@ class ArcherPlayPen(BatchRollout):
             with open(os.path.join(checkpoint_dir, "latest_checkpoint.txt"), "w") as f:
                 f.write(str(iteration))
 
-    def _compute_batch_statistics(self, batch):
-        """
-        Compute statistics for a given batch of data.
-        Args:
-            batch: A dictionary containing batch data.
-        Returns:
-            A dictionary of computed statistics.
-        """
-        stats = {}
-        for key, value in batch.items():
-            if isinstance(value, torch.Tensor) and value.ndim > 0:  # Only compute stats for tensors
-                stats[f"{key}_mean"] = value.mean().item()
-                stats[f"{key}_std"] = value.std().item()
-                stats[f"{key}_min"] = value.min().item()
-                stats[f"{key}_max"] = value.max().item()
-        return stats
 class ArcherEval(EvalBatchRollout):
     def __init__(self, learner, teacher, cfg, game_registry):
         """
@@ -592,7 +580,6 @@ class ArcherEval(EvalBatchRollout):
                 success_count += 1
             elif instance_info['aborted']:
                 print('aborted')
-
                 aborted_count += 1
             elif instance_info['lost']:
                 print('lost')
@@ -606,7 +593,19 @@ class ArcherEval(EvalBatchRollout):
             'eval/success_count': success_count,
             'eval/aborted_count': aborted_count,
             'eval/lost_count': lost_count,
-            'eval/avg_game_length': sum(game_length) / len(game_length) if game_length else 0
+            'eval/avg_game_length': sum(game_length) / len(game_length) if game_length else 0,
+            'eval/min_episode_reward': min(total_episode_scores) if total_episode_scores else 0,
+            'eval/max_episode_reward': max(total_episode_scores) if total_episode_scores else 0,
+            'eval/std_episode_reward': torch.std(torch.tensor(total_episode_scores)).item() if total_episode_scores else 0,
+            'eval/min_turn_reward': min(total_response_scores) if total_response_scores else 0,
+            'eval/max_turn_reward': max(total_response_scores) if total_response_scores else 0,
+            'eval/std_turn_reward': torch.std(torch.tensor(total_response_scores)).item() if total_response_scores else 0,
+            'eval/min_accumulated_reward': min(per_episode_response_sum) if per_episode_response_sum else 0,
+            'eval/max_accumulated_reward': max(per_episode_response_sum) if per_episode_response_sum else 0,
+            'eval/std_accumulated_reward': torch.std(torch.tensor(per_episode_response_sum)).item() if per_episode_response_sum else 0,
+            'eval/min_game_length': min(game_length) if game_length else 0,
+            'eval/max_game_length': max(game_length) if game_length else 0,
+            'eval/std_game_length': torch.std(torch.tensor(game_length)).item() if game_length else 0,
         }
 
         return metrics
