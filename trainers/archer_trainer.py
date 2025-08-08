@@ -16,7 +16,9 @@ import pickle
 
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
+import torch.nn as nn
 import torch
+
 from tqdm import tqdm
 import wandb
 import hydra
@@ -400,33 +402,22 @@ class ArcherPlayPen(BatchRollout):
 
     def _monitor_lora_gradients(self):
         """Monitor gradients and parameters of LoRA adapters."""
-        lora_params = {}
-        lora_grads = {}
-        
-        # Collect LoRA parameter names, values, and gradients
-        for name, param in self.learner.model.named_parameters():
+        base = self._unwrap(self.learner.model)
+        lora_params, lora_grads = {}, {}
+        for name, param in base.named_parameters():
             if 'lora' in name and param.requires_grad:
                 lora_params[name] = param.data.norm().item()
-                if param.grad is not None:
-                    lora_grads[name] = param.grad.norm().item()
-                else:
-                    lora_grads[name] = 0.0
-        
-        # Log average gradient norm and parameter norm
+                lora_grads[name] = (param.grad.norm().item()
+                                    if param.grad is not None else 0.0)
         avg_grad_norm = sum(lora_grads.values()) / max(len(lora_grads), 1)
         avg_param_norm = sum(lora_params.values()) / max(len(lora_params), 1)
-        
-        # Log to wandb
         metrics = {
             "lora/avg_grad_norm": avg_grad_norm,
             "lora/avg_param_norm": avg_param_norm,
             "lora/active_params": len(lora_params)
         }
-        
-        # Sample some specific layers to track in detail
-        for name, grad in list(lora_grads.items())[:5]:  # Track first 5 LoRA layers
+        for name, grad in list(lora_grads.items())[:5]:
             metrics[f"lora_grad/{name}"] = grad
-        
         return metrics
     
     def _save_checkpoint(self, iteration, eval_metrics=None, buffer=None):
@@ -437,21 +428,17 @@ class ArcherPlayPen(BatchRollout):
         checkpoint_dir = "checkpoints"
         os.makedirs(checkpoint_dir, exist_ok=True)
 
-        lora_state_dict = {
-                name: param for name, param in self.learner.model.state_dict().items() if 'lora' in name
-            }
-
-
         checkpoint = {
-                    "iteration": iteration,
-                    "lora_state_dict": lora_state_dict, # save only lora layers
-                    "critic_state_dict": self.critic.state_dict(),
-                    "target_critic_state_dict": self.target_critic.state_dict(),
-                    "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
-                    "actor_optimizer_state_dict": self.actor_optimizer.state_dict(),
-                    "config": self.cfg,
-                    "best_metric": self.best_metric
-                }
+            "iteration": iteration,
+            "lora_state_dict": self._lora_state_dict(),
+            "critic_state_dict": self._unwrap(self.critic).state_dict(),
+            "target_critic_state_dict": self._unwrap(self.target_critic).state_dict(),
+            "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
+            "actor_optimizer_state_dict": self.actor_optimizer.state_dict(),
+            "config": self.cfg,
+            "best_metric": self.best_metric
+        }
+
         if eval_metrics:
             current_metric = eval_metrics['eval/average_accumulated_reward']
             if current_metric > self.best_metric:
@@ -477,6 +464,15 @@ class ArcherPlayPen(BatchRollout):
 
             with open(os.path.join(checkpoint_dir, "latest_checkpoint.txt"), "w") as f:
                 f.write(str(iteration))
+
+
+    def _unwrap(self, model):
+        return model.module if isinstance(model, (nn.DataParallel, nn.parallel.DistributedDataParallel)) else model
+
+    def _lora_state_dict(self):
+        base = self._unwrap(self.learner.model)
+        # Filter only LoRA params (name contains 'lora')
+        return {k: v for k, v in base.state_dict().items() if 'lora' in k}
 
 class ArcherEval(EvalBatchRollout):
     def __init__(self, learner, teacher, cfg, game_registry):
