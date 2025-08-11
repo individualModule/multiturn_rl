@@ -1,0 +1,11 @@
+Error executing job with overrides: []
+Traceback (most recent call last):
+  File "/root/workspace/thesisProject/multiturn_rl/train.py", line 131, in main
+    trainer.learn_interactive(game_registry)
+  File "/root/workspace/thesisProject/multiturn_rl/trainers/archer_trainer.py", line 70, in learn_interactive
+    game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
+  File "/root/workspace/thesisProject/clemcore_multiturn_rl/clemcore/clemgame/registry.py", line 326, in get_game_specs_that_unify_with
+    raise ValueError(f"No games found matching the game selector='{game_selector}'.")
+ValueError: No games found matching the game selector='guesswhat'.
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.

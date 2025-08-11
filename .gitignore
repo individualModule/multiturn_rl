@@ -1,0 +1,12 @@
+.DS_Store
+.idea/
+__pycache__/
+
+# Ignore CPython compiled files
+*.cpython-*.so
+*.pyc
+wandb
+outputs
+notebooks
+*.log
+dataloaders/__pycache__/playpen_dataloader.cpython-310.pyc

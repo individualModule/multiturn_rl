@@ -1,0 +1,14 @@
+spec_name: "wordle"  # Replace with actual game spec name
+
+learner:
+  model_name: "Meta-Llama-3.1-8B-Instruct"   # Replace with actual model name
+  max_tokens: 350
+  temperature: 1.0
+  name: "Player 1"
+
+  
+teacher:
+  model_name: null   # Replace with actual model name
+  max_tokens: null
+  temperature: null
+  name: null

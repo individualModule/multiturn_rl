@@ -1,0 +1,9 @@
+defaults:
+  - default
+
+rollout_steps: 256
+rollout_iterations: 150
+eval_frequency: 10
+eval_episodes: 20
+critic_epochs: 20
+actor_epochs: 5

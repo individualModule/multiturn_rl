@@ -1,0 +1,14 @@
+defaults:
+  - trainer: default
+  - optimizer: default
+  - model: default
+  - loss: default
+  - game: wordle
+  - lora: default
+  - _self_
+
+project_name: archer-rl
+run_name: "Wordle-exp_mix_3"
+group: "Wordle"
+seed: 42
+device: cuda

@@ -1,0 +1,43 @@
+trainer:
+  rollout_steps: 32
+  rollout_iterations: 15
+  eval_frequency: 5
+  eval_episodes: 2
+  critic_epochs: 10
+  actor_epochs: 3
+  max_grad_norm: 0.5
+  tau: 0.005
+  batch_size: 32
+  num_workers: 4
+optimizer:
+  actor:
+    _target_: torch.optim.Adam
+    lr: 1.0e-06
+    betas:
+    - 0.9
+    - 0.999
+  critic:
+    _target_: torch.optim.Adam
+    lr: 2.0e-05
+    betas:
+    - 0.9
+    - 0.999
+model:
+  critic:
+    hidden_dims:
+    - 512
+    - 512
+loss:
+  actor:
+    _target_: modelling.archer_critic.Reinforce
+  critic:
+    _target_: modelling.archer_critic.TDLoss
+game:
+  spec_name: guesswhat
+  teacher:
+    model_name: Unsloth-Llama-3-8B
+  learner:
+    model_name: Unsloth-Llama-3-8B
+project_name: archer-rl
+seed: 42
+device: cuda

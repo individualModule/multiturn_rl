@@ -1,0 +1,11 @@
+actor:
+  _target_: torch.optim.Adam
+  lr: 5e-6
+  betas: [0.9, 0.999]
+  weight_decay: 0
+
+critic:
+  _target_: torch.optim.Adam
+  lr: 6e-05
+  betas: [0.9, 0.999]
+  weight_decay: 0

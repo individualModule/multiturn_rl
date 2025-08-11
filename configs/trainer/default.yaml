@@ -1,0 +1,25 @@
+rollout_steps: 256
+rollout_iterations: 100
+eval_frequency: 1
+eval_episodes: 5
+critic_epochs: 12
+actor_epochs: 2
+max_grad_norm: 0.4
+critic_max_grad_norm: 4.0
+tau: 0.1 # actual fn is 1-tau so our update is 0.9
+critic_batch_size: 64  
+actor_batch_size: 4   
+num_workers: 1
+gamma: 0.98
+eval_instances: "instances_v1.6.json"
+eval_rollout_steps: 36
+warmup_iters: 4
+scale_reward: True
+scaling_factor: 100.00
+is_replay_buffer: True
+step_size: 512
+inference_batch_size: 128
+actor_grad_accum_steps: 64
+critic_grad_accum_steps: 4
+buffer_size: 2500
+# make sure that step size, grad accum and batch sizes add up.

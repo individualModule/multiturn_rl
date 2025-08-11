@@ -1,0 +1,9 @@
+Error executing job with overrides: []
+Traceback (most recent call last):
+  File "/root/workspace/thesisProject/multiturn_rl/train.py", line 131, in main
+    trainer.learn_interactive(game_registry)
+  File "/root/workspace/thesisProject/multiturn_rl/trainers/archer_trainer.py", line 69, in learn_interactive
+    game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
+AttributeError: 'ArcherPlayPen' object has no attribute 'cfg'
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.

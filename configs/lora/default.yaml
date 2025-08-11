@@ -1,0 +1,4 @@
+  r: 16
+  alpha: 32
+  dropout: 0.1
+  bias: "none"
