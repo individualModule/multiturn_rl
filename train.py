@@ -3,6 +3,7 @@ from omegaconf import DictConfig
 import torch
 from torch import nn
 import os
+import pickle
 
 from peft import LoraConfig, get_peft_model
 from trainers.archer_trainer import ArcherPlayPen
@@ -10,6 +11,7 @@ from clemcore.clemgame.registry import GameRegistry
 from clemcore.backends import ModelRegistry, BackendRegistry
 from clemcore.backends import ModelSpec
 from modelling.archer_critic import DoubleCritic
+from clemcore.playpen import BatchReplayBuffer
 
 
 
@@ -20,7 +22,7 @@ def load_checkpoint(checkpoint_path, trainer, lora_config):
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
 
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
     # (Re)attach LoRA if not already present
     if not hasattr(trainer.learner.model, "peft_config"):
@@ -182,10 +184,15 @@ def main(cfg: DictConfig):
     # if checkpoint_path and os.path.exists(checkpoint_path):
     #     start_iteration = load_checkpoint(checkpoint_path, trainer)
 
-    if cfg.get("checkpoint_path"):
-        start_iter = load_checkpoint(cfg.checkpoint_path, trainer, lora_config)
+    start_iter = load_checkpoint('/home/users/dristic/project/Archer/checkpoints/latest_checkpoint_exp_4.pt', trainer, lora_config)
+    # Load buffer if exists
+    # buffer_path = os.path.join("checkpoints", "latest_buffer.pkl")
+    buffer_path = '/home/users/dristic/project/Archer/checkpoints/latest_buffer_exp_4.pkl'
+    # for regular training       
+    # start_iter = 0
+    # buffer = None
     # Start training
-    trainer.learn_interactive(game_registry)
+    trainer.learn_interactive(game_registry, start_iteration=start_iter, buffer_path=buffer_path)
 
 if __name__ == "__main__":
     main()
