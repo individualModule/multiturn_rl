@@ -29,6 +29,7 @@ from clemcore.playpen import EvalBatchRollout, BatchRollout, make_batch_env, mak
 from clemcore.clemgame import GameRegistry
 from modelling.archer_critic import ArcherAgent
 from dataloaders.playpen_dataloader import FlatBufferDataset, custom_collate_fn
+from utils.utils import save_lora_state_dict
 
 class ArcherPlayPen(BatchRollout):
     def __init__(self, learner, teacher, critic, target_critic,
@@ -81,7 +82,7 @@ class ArcherPlayPen(BatchRollout):
         self.inference_batch_size = self.cfg.trainer.inference_batch_size
         self.buffer_size = self.cfg.trainer.buffer_size
         self.evaluator = ArcherEval(learner, teacher, cfg, game_registry)
-
+        self.lora_save_every = cfg.trainer.save_every
         # buffer definition and parameters
         self.is_replay_buffer = self.cfg.trainer.is_replay_buffer
 
@@ -160,6 +161,9 @@ class ArcherPlayPen(BatchRollout):
                     **critic_metrics,
                     **actor_metrics
                 })
+            if iteration >= self.warmup_iterations:
+                self.lora_save_every_n(iteration)
+                
             # save checkpoint every iter
             self._save_checkpoint(iteration, buffer=buffer)            
             # replay buffer has no reset - pop mechanism (oldest samples are popped)
@@ -479,6 +483,18 @@ class ArcherPlayPen(BatchRollout):
         base = self._unwrap(self.learner.model)
         # Filter only LoRA params (name contains 'lora')
         return {k: v for k, v in base.state_dict().items() if 'lora' in k}
+
+    def lora_save_every_n(self, iteration):
+
+        if self.lora_save_every and iteration > 0 and iteration % self.lora_save_every == 0:
+            os.makedirs("checkpoints", exist_ok=True)
+            lora_path = os.path.join(
+                "checkpoints",
+                f"{self.cfg.run_name}_lora_dict_iter_{iteration}.pt"
+            )
+            save_lora_state_dict(self.learner.model, lora_path)
+            print(f"Saved LoRA state dict at {lora_path}")
+
 
 class ArcherEval(EvalBatchRollout):
     def __init__(self, learner, teacher, cfg, game_registry):

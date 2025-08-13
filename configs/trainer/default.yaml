@@ -22,4 +22,5 @@ inference_batch_size: 96
 actor_grad_accum_steps: 64
 critic_grad_accum_steps: 4
 buffer_size: 5120
+save_every: 5
 # make sure that step size, grad accum and batch sizes add up.
