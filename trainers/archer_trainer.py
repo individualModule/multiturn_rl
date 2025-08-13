@@ -96,27 +96,32 @@ class ArcherPlayPen(BatchRollout):
                    group=self.cfg.group,
                   config=dict(self.cfg))
 
-    def learn_interactive(self, game_registry: GameRegistry):
+    def learn_interactive(self, game_registry: GameRegistry, start_iteration=0, buffer_path=None):
         # Select game spec you want to train on
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
         players = [self.learner, self.teacher] if self.teacher else [self.learner]
         # Create environment and buffer
         with make_batch_env(self.game_spec, players, shuffle_instances = True, batch_size = self.inference_batch_size) as env:
-            if self.is_replay_buffer:
-                # sample size should be equal to the steps sampled.
-                # need to figure this one out. How many items in the buffer and on how many items do we train? 
-                buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
+            if buffer_path is not None:
+                rollout_buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
+                rollout_buffer.load_buffer(buffer_path)
+                print('buffer loaded successfully!')
+                print(len(rollout_buffer.trajectories))
             else:
-                buffer = BatchRolloutBuffer(env)
+                if self.is_replay_buffer:
+                    # sample size should be equal to the steps sampled.
+                    # need to figure this one out. How many items in the buffer and on how many items do we train? 
+                    rollout_buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
+                else:
+                    rollout_buffer = BatchRolloutBuffer(env)
 
             # self._collect_rollouts(env, self.rollout_steps, buffer) 
-            self._train(buffer, env)
+            self._train(rollout_buffer, env, start_iteration=start_iteration)
             # buffer.reset()
     
-    def _train(self, buffer, env):
-
+    def _train(self, buffer, env, start_iteration=0):
         # Training loop
-        for iteration in range(self.rollout_iterations):
+        for iteration in range(start_iteration, self.rollout_iterations):
             torch.cuda.empty_cache() # empty cache ocassionally
             # Collect trajectories
             rollout_metrics = self._collect_rollouts(game_env = env,
@@ -141,6 +146,7 @@ class ArcherPlayPen(BatchRollout):
                                                   scaled_reward=self.scale_reward, scaling_factor=self.scaling_factor, buffer=buffer)
 
             if iteration >= self.warmup_iterations:
+                print("!NOT WARMUP!")
                 actor_metrics = self._update_actor(self.actor_epochs,
                                                    scaled_reward=self.scale_reward,
                                                    scaling_factor=self.scaling_factor,
