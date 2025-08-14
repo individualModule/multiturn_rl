@@ -17,7 +17,7 @@ warmup_iters: 10
 scale_reward: True
 scaling_factor: 100.00
 is_replay_buffer: True
-step_size: 512
+step_size: 256
 inference_batch_size: 96
 actor_grad_accum_steps: 64
 critic_grad_accum_steps: 4

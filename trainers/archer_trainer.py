@@ -23,6 +23,7 @@ from tqdm import tqdm
 import wandb
 import hydra
 from omegaconf import DictConfig
+from huggingface_hub import login
 import os 
 
 from clemcore.playpen import EvalBatchRollout, BatchRollout, make_batch_env, make_eval_env, BatchRolloutBuffer, BatchReplayBuffer, GameRecordCallback, RolloutProgressCallback
@@ -30,6 +31,13 @@ from clemcore.clemgame import GameRegistry
 from modelling.archer_critic import ArcherAgent
 from dataloaders.playpen_dataloader import FlatBufferDataset, custom_collate_fn
 from utils.utils import save_lora_state_dict
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # Loads .env file
+
+hf_token = os.getenv("HF_TOKEN")
+hf_username = os.getenv("HF_USERNAME")
 
 class ArcherPlayPen(BatchRollout):
     def __init__(self, learner, teacher, critic, target_critic,
@@ -485,7 +493,6 @@ class ArcherPlayPen(BatchRollout):
         return {k: v for k, v in base.state_dict().items() if 'lora' in k}
 
     def lora_save_every_n(self, iteration):
-
         if self.lora_save_every and iteration > 0 and iteration % self.lora_save_every == 0:
             os.makedirs("checkpoints", exist_ok=True)
             lora_path = os.path.join(
@@ -494,6 +501,29 @@ class ArcherPlayPen(BatchRollout):
             )
             save_lora_state_dict(self.learner.model, lora_path)
             print(f"Saved LoRA state dict at {lora_path}")
+
+            # Load credentials from environment variables
+            hf_token = os.getenv("HF_TOKEN")
+            hf_username = os.getenv("HF_USERNAME")
+            if not hf_token or not hf_username:
+                print("HF_TOKEN or HF_USERNAME not set in environment. Skipping push to Hugging Face Hub.")
+                return
+
+            repo_id = f"{hf_username}/{self.cfg.run_name}_lora_adapter"
+
+            # Authenticate (only needs to be done once per session)
+            login(token=hf_token)
+
+            # If using transformers' PEFT or similar, use push_to_hub
+            try:
+                self.learner.model.push_to_hub(
+                    repo_id=repo_id,
+                    commit_message=f"LoRA adapter at iteration {iteration}",
+                    use_temp_dir=True
+                )
+                print(f"Pushed LoRA adapter to Hugging Face Hub: {repo_id}")
+            except Exception as e:
+                print(f"Failed to push to Hugging Face Hub: {e}")
 
 
 class ArcherEval(EvalBatchRollout):

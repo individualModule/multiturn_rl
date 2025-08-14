@@ -2,3 +2,5 @@
   alpha: 32
   dropout: 0.1
   bias: "none"
+  target_modules: "all-linear"
+  task_type: "CAUSAL_LM"

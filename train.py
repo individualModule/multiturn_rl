@@ -184,16 +184,16 @@ def main(cfg: DictConfig):
     # if checkpoint_path and os.path.exists(checkpoint_path):
     #     start_iteration = load_checkpoint(checkpoint_path, trainer)
 
-    start_iter = load_checkpoint('/home/users/dristic/project/Archer/checkpoints/latest_checkpoint_exp_4.pt', trainer, lora_config)
+    # start_iter = load_checkpoint('/home/users/dristic/project/Archer/checkpoints/latest_checkpoint_exp_4.pt', trainer, lora_config)
     # Load buffer if exists
     # buffer_path = os.path.join("checkpoints", "latest_buffer.pkl")
-    buffer_path = '/home/users/dristic/project/Archer/checkpoints/latest_buffer_exp_4.pkl'
+    # buffer_path = '/home/users/dristic/project/Archer/checkpoints/latest_buffer_exp_4.pkl'
     # for regular training       
     # start_iter = 0
     # buffer = None
     # Start training
-    trainer.learn_interactive(game_registry, start_iteration=start_iter, buffer_path=buffer_path)
-
+    # trainer.learn_interactive(game_registry, start_iteration=start_iter, buffer_path=buffer_path)
+    trainer.learn_interactive(game_registry)
 if __name__ == "__main__":
     main()
 
