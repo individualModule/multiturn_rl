@@ -11,7 +11,7 @@ top_dir: "/scratch/usr/bbmdr998/thesis/playpen"
 checkpoint_dir: "/scratch/usr/bbmdr998/thesis/checkpoints"
 eval_results_dir: "/scratch/usr/bbmdr998/thesis/playpen_eval"
 project_name: archer-rl
-run_name: "Wordle-exp-pos-1"
+run_name: "Wordle-exp-pos-1-test"
 group: "Wordle"
 seed: 42
 device: cuda
