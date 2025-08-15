@@ -49,6 +49,10 @@ class ArcherPlayPen(BatchRollout):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.game_spec = None
         self.cfg = cfg  # Fix: Assign cfg to self.cfg
+
+        self.playpen_top_dir = self.cfg.top_dir
+        self.checkpoint_dir = self.cfg.checkpoint_dir
+        self.eval_results_dir = self.cfg.eval_results_dir
         # lora parameters
         # self.policy = learner
         # switched all self.policy to self.learner
@@ -94,7 +98,7 @@ class ArcherPlayPen(BatchRollout):
         # buffer definition and parameters
         self.is_replay_buffer = self.cfg.trainer.is_replay_buffer
 
-        self.add_callback(GameRecordCallback(top_dir=f"playpen/{self.cfg.run_name}"))
+        self.add_callback(GameRecordCallback(top_dir=f"{self.playpen_top_dir}/{self.cfg.run_name}"))
         self.add_callback(RolloutProgressCallback(self.rollout_steps))
 
         self.best_metric = float('-inf')
@@ -443,8 +447,8 @@ class ArcherPlayPen(BatchRollout):
         
         Probably does not work well - must revisit and ensure it loads properly.
         """
-        checkpoint_dir = "checkpoints"
-        os.makedirs(checkpoint_dir, exist_ok=True)
+        # checkpoint_dir = "checkpoints"
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
 
         checkpoint = {
             "iteration": iteration,
@@ -461,26 +465,26 @@ class ArcherPlayPen(BatchRollout):
             current_metric = eval_metrics['eval/average_accumulated_reward']
             if current_metric > self.best_metric:
                 self.best_metric = current_metric
-                best_checkpoint_path = os.path.join(checkpoint_dir, f"{self.cfg.run_name}_best_checkpoint.pt")
+                best_checkpoint_path = os.path.join(self.checkpoint_dir, f"{self.cfg.run_name}_best_checkpoint.pt")
                 torch.save(checkpoint, best_checkpoint_path)
                 print(f"Best checkpoint saved at {best_checkpoint_path} with metric: {current_metric:.2f}")
                 if buffer:
-                    best_buffer_path = os.path.join(checkpoint_dir, f"{self.cfg.run_name}_best_buffer.pkl")
+                    best_buffer_path = os.path.join(self.checkpoint_dir, f"{self.cfg.run_name}_best_buffer.pkl")
                     buffer.save_buffer(best_buffer_path, default_name = False)
                     print(f"Best buffer saved at {best_buffer_path}")
 
         else:
         # Use a key metric to determine if this is the best checkpoint
                 
-            latest_checkpoint_path = os.path.join(checkpoint_dir, "latest_checkpoint.pt")
+            latest_checkpoint_path = os.path.join(self.checkpoint_dir, "latest_checkpoint.pt")
             torch.save(checkpoint, latest_checkpoint_path)
             print(f"New checkpoint saved at {latest_checkpoint_path}")
             if buffer:
-                latest_buffer_path = os.path.join(checkpoint_dir, "latest_buffer.pkl")
+                latest_buffer_path = os.path.join(self.checkpoint_dir, "latest_buffer.pkl")
                 buffer.save_buffer(latest_buffer_path, default_name=False)
 
 
-            with open(os.path.join(checkpoint_dir, "latest_checkpoint.txt"), "w") as f:
+            with open(os.path.join(self.checkpoint_dir, "latest_checkpoint.txt"), "w") as f:
                 f.write(str(iteration))
 
 
@@ -547,7 +551,7 @@ class ArcherEval(EvalBatchRollout):
         self.batch_size = cfg.trainer.inference_batch_size
         self.game_registry = game_registry
         # Add evaluation-specific callbacks
-        self.add_callback(GameRecordCallback(top_dir=f"eval_results/{self.cfg.run_name}", store_instance=True))
+        self.add_callback(GameRecordCallback(top_dir=f"{self.eval_results_dir}/{self.cfg.run_name}", store_instance=True))
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
         players = [self.learner, self.teacher] if self.teacher else [self.learner]
         with make_eval_env(self.game_spec, players, shuffle_instances = False, instances_name=self.eval_instances, batch_size=self.batch_size) as self.eval_env:

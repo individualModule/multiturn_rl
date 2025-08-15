@@ -7,6 +7,9 @@ defaults:
   - lora: default
   - _self_
 
+top_dir: "/scratch/usr/bbmdr998/thesis/playpen"
+checkpoint_dir: "/scratch/usr/bbmdr998/thesis/checkpoints"
+eval_results_dir: "/scratch/usr/bbmdr998/thesis/playpen_eval"
 project_name: archer-rl
 run_name: "Wordle-exp-pos-1"
 group: "Wordle"
