@@ -8,7 +8,7 @@ defaults:
   - _self_
 
 project_name: archer-rl
-run_name: "Wordle-curr-neg-2"
+run_name: "Wordle-exp-pos-1"
 group: "Wordle"
 seed: 42
 device: cuda

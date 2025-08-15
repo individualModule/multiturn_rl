@@ -509,7 +509,7 @@ class ArcherPlayPen(BatchRollout):
                 print("HF_TOKEN or HF_USERNAME not set in environment. Skipping push to Hugging Face Hub.")
                 return
 
-            repo_id = f"{hf_username}/{self.cfg.run_name}_lora_adapter"
+            repo_id = f"{hf_username}/{self.cfg.run_name}_lora_adapter_iter_{iteration}"
 
             # Authenticate (only needs to be done once per session)
             login(token=hf_token)
