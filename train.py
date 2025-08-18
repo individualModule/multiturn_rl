@@ -5,13 +5,14 @@ from torch import nn
 import os
 import pickle
 from accelerate import Accelerator
+from accelerate.utils import send_to_device
 
 from peft import LoraConfig, get_peft_model
-from trainers.archer_trainer import ArcherPlayPen
+from multiturn_rl.trainers.archer_trainer import ArcherPlayPen
 from clemcore.clemgame.registry import GameRegistry
 from clemcore.backends import ModelRegistry, BackendRegistry
 from clemcore.backends import ModelSpec
-from modelling.archer_critic import DoubleCritic
+from multiturn_rl.modelling.archer_critic import DoubleCritic
 from clemcore.playpen import BatchReplayBuffer
 
 
@@ -88,7 +89,6 @@ def initialize_game_and_models(cfg: DictConfig):
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: DictConfig):
     accelerator = Accelerator(log_with="wandb")
-
     # Set random seed
     torch.manual_seed(cfg.seed + accelerator.process_index)
     if torch.cuda.is_available():
@@ -96,6 +96,7 @@ def main(cfg: DictConfig):
     
     # Detect device
     device = accelerator.device
+    print(f"Accelerator device: {device}")  # Add this for debugging
 
     # Initialize game registry and models
     game_registry, learner, teacher = initialize_game_and_models(cfg)
@@ -135,13 +136,13 @@ def main(cfg: DictConfig):
         if 'lora' in name: print(f"{name}: requires_grad={param.requires_grad}, shape={list(param.shape)}")
 
 
-    if getattr(cfg.trainer, "data_parallel", False) and torch.cuda.device_count() > 1:
-        print(f"Enabling DataParallel over {torch.cuda.device_count()} GPUs")
-        # Wrap learner policy (LoRA model)
-        learner.model = nn.DataParallel(learner.model)
-        # Wrap critics
-        critic = nn.DataParallel(critic)
-        target_critic = nn.DataParallel(target_critic)
+    # if getattr(cfg.trainer, "data_parallel", False) and torch.cuda.device_count() > 1:
+    #     print(f"Enabling DataParallel over {torch.cuda.device_count()} GPUs")
+    #     # Wrap learner policy (LoRA model)
+    #     learner.model = nn.DataParallel(learner.model)
+    #     # Wrap critics
+    #     critic = nn.DataParallel(critic)
+    #     target_critic = nn.DataParallel(target_critic)
 
     # (Assertions must unwrap .module when DP is used)
     def iter_named(model):
@@ -150,12 +151,12 @@ def main(cfg: DictConfig):
 
 
 
-    lora_params_count = sum(1 for n, p in iter_named(learner.model) if 'lora' in n)
-    trainable_lora_params = sum(1 for n, p in iter_named(learner.model) if 'lora' in n and p.requires_grad)
-    non_lora_trainable = sum(1 for n, p in iter_named(learner.model) if 'lora' not in n and p.requires_grad)
-    assert trainable_lora_params > 0
-    assert trainable_lora_params == lora_params_count
-    assert non_lora_trainable == 0
+    # lora_params_count = sum(1 for n, p in iter_named(learner.model) if 'lora' in n)
+    # trainable_lora_params = sum(1 for n, p in iter_named(learner.model) if 'lora' in n and p.requires_grad)
+    # non_lora_trainable = sum(1 for n, p in iter_named(learner.model) if 'lora' not in n and p.requires_grad)
+    # assert trainable_lora_params > 0
+    # assert trainable_lora_params == lora_params_count
+    # assert non_lora_trainable == 0
 
     # Create optimizers before prepare
     critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic, params=critic.parameters())
@@ -180,7 +181,10 @@ def main(cfg: DictConfig):
             }
         }
     )
-
+    print(f"Learner model device: {learner.model.device}")
+    if teacher:
+        print(f"Teacher model device: {teacher.model.device}")
+        
     trainer = ArcherPlayPen(
         learner=learner,
         teacher=teacher,

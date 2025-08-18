@@ -1,5 +1,5 @@
 actor:
-  _target_: modelling.archer_critic.Reinforce
+  _target_: multiturn_rl.modelling.archer_critic.Reinforce
 
 critic:
-  _target_: modelling.archer_critic.TDLoss
+  _target_: multiturn_rl.modelling.archer_critic.TDLoss
