@@ -43,10 +43,14 @@ class ArcherPlayPen(BatchRollout):
     def __init__(self, learner, teacher, critic, target_critic,
                  critic_optimizer, actor_optimizer,
                  critic_loss, actor_loss, rollout_iterations,
-                 cfg: DictConfig, game_registry):
+                 cfg: DictConfig, game_registry, accelerator: Accelerator):
         
         super().__init__(learner, teacher)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.accelerator = accelerator
+        self.device = self.accelerator.device
+
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.game_spec = None
         self.cfg = cfg  # Fix: Assign cfg to self.cfg
 
@@ -104,10 +108,12 @@ class ArcherPlayPen(BatchRollout):
         self.best_metric = float('-inf')
 
         # Initialize wandb with config
-        wandb.init(project=self.cfg.project_name,
-                   name=self.cfg.run_name,
-                   group=self.cfg.group,
-                  config=dict(self.cfg))
+        # wandb.init(project=self.cfg.project_name,
+        #            name=self.cfg.run_name,
+        #            group=self.cfg.group,
+        #            config=dict(self.cfg),
+        #            mode="offline",
+        #            dir="/scratch/usr/bbmdr998/thesis/wandb")
 
     def learn_interactive(self, game_registry: GameRegistry, start_iteration=0, buffer_path=None):
         # Select game spec you want to train on
@@ -141,17 +147,22 @@ class ArcherPlayPen(BatchRollout):
                                    rollout_steps = self.rollout_steps,
                                    rollout_buffer = buffer,
                                    forPlayer = self.forPlayer ) # use this also to collect eval data
-            wandb.log(rollout_metrics)
+            # wandb.log(rollout_metrics)
+
+            if self.accelerator.is_main_process:
+                self.accelerator.log(rollout_metrics)
+
             # Run evaluation if it's time
             if iteration % self.eval_frequency == 0 and (iteration == 0 or iteration > self.warmup_iterations):
                 eval_metrics = self._evaluate_policy(current_iteration=iteration)
-                print(f"Initial evaluation:", 
-                    f"Average Reward: {eval_metrics['eval/average_episode_reward']:.2f},",
-                    f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}",
-                    f"Avg accumulated reward: {eval_metrics['eval/average_accumulated_reward']}")
+                if self.accelerator.is_main_process and eval_metrics:
+                    print("Initial evaluation:",
+                          f"Average Reward: {eval_metrics['eval/average_episode_reward']:.2f},",
+                          f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}",
+                          f"Avg accumulated reward: {eval_metrics['eval/average_accumulated_reward']}")
                 
-                # Save checkpoint if evaluation metrics improve
-                self._save_checkpoint(iteration, eval_metrics, buffer=buffer)            
+                    # Save checkpoint if evaluation metrics improve
+                    self._save_checkpoint(iteration, eval_metrics, buffer=buffer)            
             # Get stored trajectories
 
             print(len(buffer.steps))
@@ -168,46 +179,36 @@ class ArcherPlayPen(BatchRollout):
                 actor_metrics = {"actor/avg_loss": None, "actor/epochs": 0}  # Placeholder metrics for warmup
                 
             # Log iteration metrics
-            wandb.log({
-                    "iteration": iteration,
-                    **critic_metrics,
-                    **actor_metrics
-                })
-            if iteration >= self.warmup_iterations:
-                self.lora_save_every_n(iteration)
-                
-            # save checkpoint every iter
-            self._save_checkpoint(iteration, buffer=buffer)            
-            # replay buffer has no reset - pop mechanism (oldest samples are popped)
+            # wandb.log({
+            #         "iteration": iteration,
+            #         **critic_metrics,
+            #         **actor_metrics
+            #     })
+
+            if self.accelerator.is_main_process:
+                self.accelerator.log({"iteration": iteration, **critic_metrics, **actor_metrics})
+                if iteration >= self.warmup_iterations:
+                    self.lora_save_every_n(iteration)
+                self._save_checkpoint(iteration, buffer=buffer)
+
             if not self.is_replay_buffer:
                 buffer.reset()
 
 
         # Final evaluation after training
-        print("Running final evaluation...")
-        final_eval_metrics = self._evaluate_policy(current_iteration=self.rollout_iterations)
-        print(f"Final evaluation:",
-            f"Average Reward: {final_eval_metrics['eval/average_episode_reward']:.2f},",
-            f"Avg Turn Reward: {final_eval_metrics['eval/average_turn_reward']:.2f}",
-            f"Avg accumulated reward: {final_eval_metrics['eval/average_accumulated_reward']}")
-        
-        # Optionally save a final checkpoint
-        self._save_checkpoint(self.rollout_iterations, final_eval_metrics)
+        if self.accelerator.is_main_process:
+            print("Running final evaluation...")
+            final_eval_metrics = self._evaluate_policy(current_iteration=self.rollout_iterations)
+            print("Final evaluation:",
+                  f"Average Reward: {final_eval_metrics['eval/average_episode_reward']:.2f},",
+                  f"Avg Turn Reward: {final_eval_metrics['eval/average_turn_reward']:.2f}",
+                  f"Avg accumulated reward: {final_eval_metrics['eval/average_accumulated_reward']}")
+            self._save_checkpoint(self.rollout_iterations, final_eval_metrics)
 
     def _update_critic(self, critic_epochs, scaled_reward=False, scaling_factor=100.0, buffer=None):
-        """
-        Update the critic network.
-
-        Args:
-            critic_epochs: Number of epochs to train the critic.
-            dataloader: DataLoader for training data.
-            scaled_reward: If True, scale the rewards by the scaling_factor.
-            scaling_factor: The factor by which to scale the rewards.
-        """
         epoch_losses = []
-        
         for e in range(critic_epochs):
-            torch.cuda.empty_cache() # empty cache ocassionally
+            torch.cuda.empty_cache()
             epoch_loss = 0
             num_batches = 0
 
@@ -215,211 +216,166 @@ class ArcherPlayPen(BatchRollout):
             if dataset is None or len(dataset) == 0:
                 raise ValueError("Dataset is empty after maximum retries. Please check data preparation.")
 
-            print("Dataset size:", len(dataset))
-
-            # with open("critic_dataset.pkl", "wb") as f:
-            #     pickle.dump(dataset, f)
-            # print("Dataset saved to critic_dataset.pkl")
-
-
-            dataloader = DataLoader(
-                                    dataset,
+            dataloader = DataLoader(dataset,
                                     batch_size=self.critic_batch_size,
                                     shuffle=True,
-                                    collate_fn=custom_collate_fn
-                                )
+                                    collate_fn=custom_collate_fn)
+            dataloader = self.accelerator.prepare(dataloader)
 
-            for inx, batch in enumerate(tqdm(dataloader)):
-                batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
-                # self.critic_optimizer.zero_grad()
-                # Scale rewards if scaled_reward is True
-                # TODO - need to implement this in the actor as well
+            for inx, batch in enumerate(tqdm(dataloader, disable=not self.accelerator.is_main_process)):
+                batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
                 if scaled_reward:
                     batch['reward'] = batch['reward'] / scaling_factor
 
                 q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], batch['action'])
                 target_q1, target_q2 = self.agent.compute_target_q(batch['obs'])
                 target_v1, target_v2 = self.agent.compute_target_v(batch['next_obs'],
-                                                                batch['action'],
-                                                                batch['reward'],
-                                                                batch['done'])
-                print(q1.requires_grad)
-                print(v1.requires_grad)
-                print(target_q1.requires_grad)
-                print(target_v1.requires_grad)
+                                                                   batch['action'],
+                                                                   batch['reward'],
+                                                                   batch['done'])
 
-                loss = self.critic_loss(q1, q2, v1, v2,
-                                        target_v1, target_v2,
-                                        target_q1, target_q2)
-
-                loss.backward()
-                # Log gradient norms
-                grad_norms = {}
-                for name, param in self.critic.named_parameters():
-                    if param.grad is not None:
-                        grad_norms[f"critic_grad/{name}"] = param.grad.norm().item()
-
+                loss = self.critic_loss(q1, q2, v1, v2, target_v1, target_v2, target_q1, target_q2)
+                self.accelerator.backward(loss)
 
                 if (inx+1) % self.critic_grad_accum_steps == 0 or (inx+1) == len(dataloader):
-                    clip_grad_norm_(self.critic.parameters(), self.critic_max_grad_norm)
+                    self.accelerator.clip_grad_norm_(self._unwrap(self.critic).parameters(), self.critic_max_grad_norm)
                     self.critic_optimizer.step()
                     self.agent.soft_target_update(self.target_critic, self.critic, self.tau)
                     self.critic_optimizer.zero_grad()
 
-                    with torch.no_grad():
+                    if self.accelerator.is_main_process:
+                        with torch.no_grad():
                         # Log batch metrics
-                        metrics = {
-                            "critic/loss": loss.item(),
-                            "critic/q1_mean": q1.mean().item(),
-                            "critic/q2_mean": q2.mean().item(),
-                            "critic/v1_mean": v1.mean().item(),
-                            "critic/v2_mean": v2.mean().item(),
-                            "critic/q1_min": q1.min().item(),
-                            "critic/q1_max": q1.max().item(),
-                            "critic/q2_min": q2.min().item(),
-                            "critic/q2_max": q2.max().item(),
-                            "critic/v1_min": v1.min().item(),
-                            "critic/v1_max": v1.max().item(),
-                            "critic/v2_min": v2.min().item(),
-                            "critic/v2_max": v2.max().item(),
-                            "critic/q1_std": q1.std().item(),
-                            "critic/q2_std": q2.std().item(),
-                            "critic/v1_std": v1.std().item(),
-                            "critic/v2_std": v2.std().item(),
-                            "critic/epoch": e,
-                            "target/target_q1_mean": target_q1.mean().item(),
-                            "target/target_q2_mean": target_q2.mean().item(),
-                            "target/target_v1_mean": target_v1.mean().item(),
-                            "target/target_v2_mean": target_v2.mean().item(),
-                            "target/target_q1_min": target_q1.min().item(),
-                            "target/target_q1_max": target_q1.max().item(),
-                            "target/target_q2_min": target_q2.min().item(),
-                            "target/target_q2_max": target_q2.max().item(),
-                            "target/target_v1_min": target_v1.min().item(),
-                            "target/target_v1_max": target_v1.max().item(),
-                            "target/target_v2_min": target_v2.min().item(),
-                            "target/target_v2_max": target_v2.max().item(),
-                            "target/target_q1_std": target_q1.std().item(),
-                            "target/target_q2_std": target_q2.std().item(),
-                            "target/target_v1_std": target_v1.std().item(),
-                            "target/target_v2_std": target_v2.std().item(),
+                            metrics = {
+                                "critic/loss": loss.item(),
+                                "critic/q1_mean": q1.mean().item(),
+                                "critic/q2_mean": q2.mean().item(),
+                                "critic/v1_mean": v1.mean().item(),
+                                "critic/v2_mean": v2.mean().item(),
+                                "critic/q1_min": q1.min().item(),
+                                "critic/q1_max": q1.max().item(),
+                                "critic/q2_min": q2.min().item(),
+                                "critic/q2_max": q2.max().item(),
+                                "critic/v1_min": v1.min().item(),
+                                "critic/v1_max": v1.max().item(),
+                                "critic/v2_min": v2.min().item(),
+                                "critic/v2_max": v2.max().item(),
+                                "critic/q1_std": q1.std().item(),
+                                "critic/q2_std": q2.std().item(),
+                                "critic/v1_std": v1.std().item(),
+                                "critic/v2_std": v2.std().item(),
+                                "critic/epoch": e,
+                                "target/target_q1_mean": target_q1.mean().item(),
+                                "target/target_q2_mean": target_q2.mean().item(),
+                                "target/target_v1_mean": target_v1.mean().item(),
+                                "target/target_v2_mean": target_v2.mean().item(),
+                                "target/target_q1_min": target_q1.min().item(),
+                                "target/target_q1_max": target_q1.max().item(),
+                                "target/target_q2_min": target_q2.min().item(),
+                                "target/target_q2_max": target_q2.max().item(),
+                                "target/target_v1_min": target_v1.min().item(),
+                                "target/target_v1_max": target_v1.max().item(),
+                                "target/target_v2_min": target_v2.min().item(),
+                                "target/target_v2_max": target_v2.max().item(),
+                                "target/target_q1_std": target_q1.std().item(),
+                                "target/target_q2_std": target_q2.std().item(),
+                                "target/target_v1_std": target_v1.std().item(),
+                                "target/target_v2_std": target_v2.std().item(),
 
-                        }
-                    metrics.update(grad_norms)  # Add gradient norms to metrics
+                            }
 
-                    wandb.log(metrics)
+                            self.accelerator.log(metrics)
                 
                 epoch_loss += loss.item()
                 num_batches += 1
-            
-            epoch_losses.append(epoch_loss / num_batches)
-        
-        return {
-            "critic/avg_loss": sum(epoch_losses) / len(epoch_losses),
-            "critic/epochs": critic_epochs
-        }
+
+            epoch_losses.append(epoch_loss / max(num_batches, 1))
+
+        return {"critic/avg_loss": sum(epoch_losses) / max(len(epoch_losses), 1),
+                "critic/epochs": critic_epochs}
 
     def _update_actor(self, actor_epochs, scaled_reward=False, scaling_factor=100.0, buffer=None):
         epoch_losses = []
-        
         for e in range(actor_epochs):
-            torch.cuda.empty_cache() # empty cache ocassionally
-
-            # sample data
+            torch.cuda.empty_cache()
             dataset = FlatBufferDataset(buffer.sample_steps())
             if dataset is None or len(dataset) == 0:
                 raise ValueError("Dataset is empty after maximum retries. Please check data preparation.")
 
-            print("Dataset size:", len(dataset))
-
-            dataloader = DataLoader(
-                                    dataset,
+            dataloader = DataLoader(dataset,
                                     batch_size=self.actor_batch_size,
                                     shuffle=True,
-                                    collate_fn=custom_collate_fn
-                                )
+                                    collate_fn=custom_collate_fn)
+            dataloader = self.accelerator.prepare(dataloader)
 
             epoch_loss = 0
             num_batches = 0
-            for inx, batch in enumerate(tqdm(dataloader)):
-                batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
-
-                # fetches both logprob and actions in a batch
-
+            for inx, batch in enumerate(tqdm(dataloader, disable=not self.accelerator.is_main_process)):
+                batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
                 if scaled_reward:
                     batch['reward'] = batch['reward'] / scaling_factor
 
-
-                pi_action, logprobs = self.agent.get_policy_action(batch['obs'], get_logprob=True) 
+                pi_action, logprobs = self.agent.get_policy_action(batch['obs'], get_logprob=True)
                 q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
-                #take minumum of q and minimum of v
                 q = torch.minimum(q1, q2)
                 v = torch.minimum(v1, v2)
-
                 advantages = self.agent.compute_advantages(q, v)
 
-                # logprobs = self.agent.get_log_prob(batch['obs'],
-                #                                    pi_action)
-                print(logprobs.requires_grad)  # Should be True
-                print(advantages.requires_grad)  # Should be True
                 loss = self.actor_loss(advantages, logprobs)
-                loss.backward()
-                if (inx+1) % self.actor_grad_accum_steps == 0 or (inx+1) == len(dataloader):
+                self.accelerator.backward(loss)
 
-                    clip_grad_norm_(self.learner.model.parameters(), self.max_grad_norm)
+                if (inx+1) % self.actor_grad_accum_steps == 0 or (inx+1) == len(dataloader):
+                    self.accelerator.clip_grad_norm_(self._unwrap(self.learner.model).parameters(), self.max_grad_norm)
                     self.actor_optimizer.step()
                     lora_grad_metrics = self._monitor_lora_gradients()
                     self.actor_optimizer.zero_grad()
 
-                    # Log batch metrics
-                    with torch.no_grad():
-                        metrics = {
-                            "actor/loss": loss.item(),
-                            "actor/advantages_mean": advantages.mean().item(),
-                            "actor/advantages_min": advantages.min().item(),
-                            "actor/advantages_max": advantages.max().item(),
-                            "actor/advantages_std": advantages.std().item(),
-                            "actor/logprobs_mean": logprobs.mean().item(),
-                            "actor/logprobs_min": logprobs.min().item(),
-                            "actor/logprobs_max": logprobs.max().item(),
-                            "actor/q1_mean": q1.mean().item(),
-                            "actor/q2_mean": q2.mean().item(),
-                            "actor/v1_mean": v1.mean().item(),
-                            "actor/v2_mean": v2.mean().item(),
-                            "actor/q1_min": q1.min().item(),
-                            "actor/q1_max": q1.max().item(),
-                            "actor/q2_min": q2.min().item(),
-                            "actor/q2_max": q2.max().item(),
-                            "actor/v1_min": v1.min().item(),
-                            "actor/v1_max": v1.max().item(),
-                            "actor/v2_min": v2.min().item(),
-                            "actor/v2_max": v2.max().item(),
-                            "actor/q1_std": q1.std().item(),
-                            "actor/q2_std": q2.std().item(),
-                            "actor/v1_std": v1.std().item(),
-                            "actor/v2_std": v2.std().item(),
-                            "actor/epoch": e
-                        }
+                    if self.accelerator.is_main_process:
+                        with torch.no_grad():
+                            metrics = {
+                                "actor/loss": loss.item(),
+                                "actor/advantages_mean": advantages.mean().item(),
+                                "actor/advantages_min": advantages.min().item(),
+                                "actor/advantages_max": advantages.max().item(),
+                                "actor/advantages_std": advantages.std().item(),
+                                "actor/logprobs_mean": logprobs.mean().item(),
+                                "actor/logprobs_min": logprobs.min().item(),
+                                "actor/logprobs_max": logprobs.max().item(),
+                                "actor/q1_mean": q1.mean().item(),
+                                "actor/q2_mean": q2.mean().item(),
+                                "actor/v1_mean": v1.mean().item(),
+                                "actor/v2_mean": v2.mean().item(),
+                                "actor/q1_min": q1.min().item(),
+                                "actor/q1_max": q1.max().item(),
+                                "actor/q2_min": q2.min().item(),
+                                "actor/q2_max": q2.max().item(),
+                                "actor/v1_min": v1.min().item(),
+                                "actor/v1_max": v1.max().item(),
+                                "actor/v2_min": v2.min().item(),
+                                "actor/v2_max": v2.max().item(),
+                                "actor/q1_std": q1.std().item(),
+                                "actor/q2_std": q2.std().item(),
+                                "actor/v1_std": v1.std().item(),
+                                "actor/v2_std": v2.std().item(),
+                                "actor/epoch": e
+                            }
 
-                        metrics.update(lora_grad_metrics)  # Add to existing metrics dictionary
-
-                        wandb.log(metrics)
+                            metrics.update(lora_grad_metrics)
+                            self.accelerator.log(metrics)
                 
                 epoch_loss += loss.item()
                 num_batches += 1
-            
-            epoch_losses.append(epoch_loss / num_batches)
-        
-        return {
-            "actor/avg_loss": sum(epoch_losses) / len(epoch_losses),
-            "actor/epochs": actor_epochs
-        }
+
+            epoch_losses.append(epoch_loss / max(num_batches, 1))
+
+        return {"actor/avg_loss": sum(epoch_losses) / max(len(epoch_losses), 1),
+                "actor/epochs": actor_epochs}
 
     def _evaluate_policy(self, current_iteration=None):
+        if not self.accelerator.is_main_process:
+            return {}
         metrics = self.evaluator.evaluate()
-        # Log overall metrics to wandb
-        wandb.log(metrics)
-
+        self.accelerator.log(metrics)
         return metrics
 
     def _monitor_lora_gradients(self):
@@ -443,13 +399,9 @@ class ArcherPlayPen(BatchRollout):
         return metrics
     
     def _save_checkpoint(self, iteration, eval_metrics=None, buffer=None):
-        """Save training checkpoint if the metric improves.
-        
-        Probably does not work well - must revisit and ensure it loads properly.
-        """
-        # checkpoint_dir = "checkpoints"
+        if not self.accelerator.is_main_process:
+            return
         os.makedirs(self.checkpoint_dir, exist_ok=True)
-
         checkpoint = {
             "iteration": iteration,
             "lora_state_dict": self._lora_state_dict(),
@@ -489,7 +441,10 @@ class ArcherPlayPen(BatchRollout):
 
 
     def _unwrap(self, model):
-        return model.module if isinstance(model, (nn.DataParallel, nn.parallel.DistributedDataParallel)) else model
+        try:
+            return self.accelerator.unwrap_model(model)
+        except Exception:
+            return model.module if isinstance(model, (nn.DataParallel, nn.parallel.DistributedDataParallel)) else model
 
     def _lora_state_dict(self):
         base = self._unwrap(self.learner.model)
@@ -497,6 +452,8 @@ class ArcherPlayPen(BatchRollout):
         return {k: v for k, v in base.state_dict().items() if 'lora' in k}
 
     def lora_save_every_n(self, iteration):
+        if not self.accelerator.is_main_process:
+            return
         if self.lora_save_every and iteration > 0 and iteration % self.lora_save_every == 0:
             os.makedirs("checkpoints", exist_ok=True)
             lora_path = os.path.join(
@@ -543,6 +500,7 @@ class ArcherEval(EvalBatchRollout):
         # need to reorder stuff here so that the total steps == total eval instances.
         super().__init__(learner, teacher)
         self.cfg = cfg
+        self.eval_results_dir = self.cfg.eval_results_dir
         self.forPlayer = cfg.game.learner.name
         self.learner_name = cfg.game.learner.name
         self.teacher_name = cfg.game.teacher.name

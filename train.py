@@ -4,6 +4,7 @@ import torch
 from torch import nn
 import os
 import pickle
+from accelerate import Accelerator
 
 from peft import LoraConfig, get_peft_model
 from trainers.archer_trainer import ArcherPlayPen
@@ -86,13 +87,15 @@ def initialize_game_and_models(cfg: DictConfig):
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: DictConfig):
+    accelerator = Accelerator(log_with="wandb")
+
     # Set random seed
-    torch.manual_seed(cfg.seed)
+    torch.manual_seed(cfg.seed + accelerator.process_index)
     if torch.cuda.is_available():
-        torch.cuda.manual_seed(cfg.seed)
+        torch.cuda.manual_seed(cfg.seed + accelerator.process_index)
     
     # Detect device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = accelerator.device
 
     # Initialize game registry and models
     game_registry, learner, teacher = initialize_game_and_models(cfg)
@@ -142,11 +145,11 @@ def main(cfg: DictConfig):
 
     # (Assertions must unwrap .module when DP is used)
     def iter_named(model):
-        return model.module.named_parameters() if isinstance(model, nn.DataParallel) else model.named_parameters()
+        from accelerate.utils import extract_model_from_parallel
+        return extract_model_from_parallel(model).named_parameters()
 
 
 
-    # Add assertions to verify LoRA parameters are trainable
     lora_params_count = sum(1 for n, p in iter_named(learner.model) if 'lora' in n)
     trainable_lora_params = sum(1 for n, p in iter_named(learner.model) if 'lora' in n and p.requires_grad)
     non_lora_trainable = sum(1 for n, p in iter_named(learner.model) if 'lora' not in n and p.requires_grad)
@@ -154,15 +157,30 @@ def main(cfg: DictConfig):
     assert trainable_lora_params == lora_params_count
     assert non_lora_trainable == 0
 
-    print(f"\nVerified: {trainable_lora_params} LoRA parameters are trainable, all other parameters are frozen")
-    critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic,
-                                               params=(critic.module if isinstance(critic, nn.DataParallel) else critic).parameters())
-    actor_optimizer = hydra.utils.instantiate(cfg.optimizer.actor,
-                                              params=learner.model.module.parameters() if isinstance(learner.model, nn.DataParallel) else learner.model.parameters())
+    # Create optimizers before prepare
+    critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic, params=critic.parameters())
+    actor_optimizer = hydra.utils.instantiate(cfg.optimizer.actor, params=learner.model.parameters())
     critic_loss = hydra.utils.instantiate(cfg.loss.critic)
     actor_loss = hydra.utils.instantiate(cfg.loss.actor)
 
-    # Initialize trainer
+    # Move and wrap with Accelerator (adds DDP, distributed samplers, etc.)
+    learner.model, critic, target_critic, actor_optimizer, critic_optimizer = accelerator.prepare(
+        learner.model, critic, target_critic, actor_optimizer, critic_optimizer
+    )
+    # Init trackers (wandb) across processes
+    accelerator.init_trackers(
+        project_name=cfg.project_name,
+        config=dict(cfg),
+        init_kwargs={
+            "wandb": {
+                "name": cfg.run_name,
+                "group": cfg.group,
+                "mode": "offline",
+                "dir": "/scratch/usr/bbmdr998/thesis/wandb"
+            }
+        }
+    )
+
     trainer = ArcherPlayPen(
         learner=learner,
         teacher=teacher,
@@ -174,7 +192,8 @@ def main(cfg: DictConfig):
         actor_loss=actor_loss,
         rollout_iterations=cfg.trainer.rollout_iterations,
         cfg=cfg,
-        game_registry = game_registry
+        game_registry=game_registry,
+        accelerator=accelerator
     )
     
 
@@ -193,7 +212,12 @@ def main(cfg: DictConfig):
     # buffer = None
     # Start training
     # trainer.learn_interactive(game_registry, start_iteration=start_iter, buffer_path=buffer_path)
-    trainer.learn_interactive(game_registry)
+    try:
+        trainer.learn_interactive(game_registry)
+    finally:
+        accelerator.end_training()
+
+
 if __name__ == "__main__":
     main()
 
