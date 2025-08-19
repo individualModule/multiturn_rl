@@ -168,6 +168,10 @@ def main(cfg: DictConfig):
     learner.model, critic, target_critic, actor_optimizer, critic_optimizer = accelerator.prepare(
         learner.model, critic, target_critic, actor_optimizer, critic_optimizer
     )
+    print(learner.model.device)
+    print(critic.device)
+    print(target_critic.device)
+
     # Init trackers (wandb) across processes
     accelerator.init_trackers(
         project_name=cfg.project_name,

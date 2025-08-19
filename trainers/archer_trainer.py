@@ -165,21 +165,26 @@ class ArcherPlayPen(BatchRollout):
                     device=self.accelerator.device
                 )
                 self.accelerator.log(rollout_metrics)
+
+
+                if iteration % self.eval_frequency == 0 and (iteration == 0 or iteration > self.warmup_iterations):
+                    print('now eval!')
+                    eval_metrics = {}
+                    if self.accelerator.is_main_process:
+                        eval_metrics = self._evaluate_policy(current_iteration=iteration) or {}
+                        if eval_metrics:
+                            print(
+                                "Initial evaluation:",
+                                f"Average Reward: {eval_metrics['eval/average_episode_reward']:.2f},",
+                                f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}",
+                                f"Avg accumulated reward: {eval_metrics['eval/average_accumulated_reward']}",
+                            )
+                            self._save_checkpoint(iteration, eval_metrics, buffer=buffer)
+            # Get stored trajectories
+
+            self.accelerator.wait_for_everyone()
             print('done collecting')
             # Run evaluation if it's time # not sure if it runs only on main proc
-            if iteration % self.eval_frequency == 0 and (iteration == 0 or iteration > self.warmup_iterations):
-                print('now eval!')
-                eval_metrics = {}
-                if self.accelerator.is_main_process:
-                    eval_metrics = self._evaluate_policy(current_iteration=iteration) or {}
-                    if eval_metrics:
-                        print(
-                            "Initial evaluation:",
-                            f"Average Reward: {eval_metrics['eval/average_episode_reward']:.2f},",
-                            f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}",
-                            f"Avg accumulated reward: {eval_metrics['eval/average_accumulated_reward']}",
-                        )
-                        self._save_checkpoint(iteration, eval_metrics, buffer=buffer)
             # Get stored trajectories
 
             # print(len(buffer.steps))
