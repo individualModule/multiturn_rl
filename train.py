@@ -193,6 +193,7 @@ def main(cfg: DictConfig):
     # buffer = None
     # Start training
     # trainer.learn_interactive(game_registry, start_iteration=start_iter, buffer_path=buffer_path)
+    
     trainer.learn_interactive(game_registry)
 if __name__ == "__main__":
     main()

@@ -49,13 +49,18 @@ class ArcherPlayPen(BatchRollout):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.game_spec = None
         self.cfg = cfg  # Fix: Assign cfg to self.cfg
-        # lora parameters
-        # self.policy = learner
-        # switched all self.policy to self.learner
+
+        # specify directories
+        self.playpen_top_dir = self.cfg.top_dir
+        self.checkpoint_dir = self.cfg.checkpoint_dir
+        self.eval_results_dir = self.cfg.eval_results_dir
+
+        self.offline = self.cfg.offline
+
         # Initialize Archer components
         self.learner_name = cfg.game.learner.name
         self.teacher_name = cfg.game.teacher.name
-
+        # initialize model parameters
         self.critic = critic
         self.target_critic = target_critic
         self.critic_optimizer = critic_optimizer
@@ -68,13 +73,18 @@ class ArcherPlayPen(BatchRollout):
         self.critic_epochs = self.cfg.trainer.critic_epochs
         self.actor_epochs = self.cfg.trainer.actor_epochs
 
+        # rollout params
         self.forPlayer = self.cfg.game.learner.name
         self.rollout_steps = self.cfg.trainer.rollout_steps # trajectory count 
         self.rollout_iterations = self.cfg.trainer.rollout_iterations
+
+        # eval params
         self.eval_instances = self.cfg.trainer.eval_instances # name of eval instances file
         self.eval_rollout_steps = self.cfg.trainer.eval_rollout_steps # trajectory count
         self.eval_frequency = self.cfg.trainer.eval_frequency
         self.eval_episodes = self.cfg.trainer.eval_episodes
+        
+        # training params
         self.step_size = self.cfg.trainer.step_size # number of sample datapoints per epoch
         self.actor_batch_size = self.cfg.trainer.actor_batch_size
         self.critic_batch_size = self.cfg.trainer.critic_batch_size
@@ -87,14 +97,17 @@ class ArcherPlayPen(BatchRollout):
         self.warmup_iterations = self.cfg.trainer.warmup_iters
         self.scaling_factor = self.cfg.trainer.scaling_factor
         self.scale_reward = self.cfg.trainer.scale_reward
+
         self.inference_batch_size = self.cfg.trainer.inference_batch_size
         self.buffer_size = self.cfg.trainer.buffer_size
         self.evaluator = ArcherEval(learner, teacher, cfg, game_registry)
         self.lora_save_every = cfg.trainer.save_every
+
         # buffer definition and parameters
         self.is_replay_buffer = self.cfg.trainer.is_replay_buffer
 
-        self.add_callback(GameRecordCallback(top_dir=f"playpen/{self.cfg.run_name}"))
+        # callbacks
+        self.add_callback(GameRecordCallback(top_dir=f"{self.playpen_top_dir}/{self.cfg.run_name}"))
         self.add_callback(RolloutProgressCallback(self.rollout_steps))
 
         self.best_metric = float('-inf')
@@ -145,9 +158,11 @@ class ArcherPlayPen(BatchRollout):
                     f"Average Reward: {eval_metrics['eval/average_episode_reward']:.2f},",
                     f"Avg Turn Reward: {eval_metrics['eval/average_turn_reward']:.2f}",
                     f"Avg accumulated reward: {eval_metrics['eval/average_accumulated_reward']}")
-                
+                try:
                 # Save checkpoint if evaluation metrics improve
-                self._save_checkpoint(iteration, eval_metrics, buffer=buffer)            
+                    self._save_checkpoint(iteration, eval_metrics, buffer=buffer)      
+                except Exception as e:
+                    print("Exception occured:", e)
             # Get stored trajectories
 
             print(len(buffer.steps))
@@ -170,7 +185,7 @@ class ArcherPlayPen(BatchRollout):
                     **actor_metrics
                 })
             if iteration >= self.warmup_iterations:
-                self.lora_save_every_n(iteration)
+                self.lora_save_every_n(iteration, self.offline)
                 
             # save checkpoint every iter
             self._save_checkpoint(iteration, buffer=buffer)            
@@ -213,11 +228,6 @@ class ArcherPlayPen(BatchRollout):
 
             print("Dataset size:", len(dataset))
 
-            # with open("critic_dataset.pkl", "wb") as f:
-            #     pickle.dump(dataset, f)
-            # print("Dataset saved to critic_dataset.pkl")
-
-
             dataloader = DataLoader(
                                     dataset,
                                     batch_size=self.critic_batch_size,
@@ -227,9 +237,6 @@ class ArcherPlayPen(BatchRollout):
 
             for inx, batch in enumerate(tqdm(dataloader)):
                 batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
-                # self.critic_optimizer.zero_grad()
-                # Scale rewards if scaled_reward is True
-                # TODO - need to implement this in the actor as well
                 if scaled_reward:
                     batch['reward'] = batch['reward'] / scaling_factor
 
@@ -239,6 +246,7 @@ class ArcherPlayPen(BatchRollout):
                                                                 batch['action'],
                                                                 batch['reward'],
                                                                 batch['done'])
+
                 print(q1.requires_grad)
                 print(v1.requires_grad)
                 print(target_q1.requires_grad)
@@ -250,11 +258,11 @@ class ArcherPlayPen(BatchRollout):
 
                 loss.backward()
                 # Log gradient norms
+
                 grad_norms = {}
                 for name, param in self.critic.named_parameters():
                     if param.grad is not None:
                         grad_norms[f"critic_grad/{name}"] = param.grad.norm().item()
-
 
                 if (inx+1) % self.critic_grad_accum_steps == 0 or (inx+1) == len(dataloader):
                     clip_grad_norm_(self.critic.parameters(), self.critic_max_grad_norm)
@@ -302,7 +310,6 @@ class ArcherPlayPen(BatchRollout):
 
                         }
                     metrics.update(grad_norms)  # Add gradient norms to metrics
-
                     wandb.log(metrics)
                 
                 epoch_loss += loss.item()
@@ -341,10 +348,8 @@ class ArcherPlayPen(BatchRollout):
                 batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
 
                 # fetches both logprob and actions in a batch
-
                 if scaled_reward:
                     batch['reward'] = batch['reward'] / scaling_factor
-
 
                 pi_action, logprobs = self.agent.get_policy_action(batch['obs'], get_logprob=True) 
                 q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
@@ -354,12 +359,12 @@ class ArcherPlayPen(BatchRollout):
 
                 advantages = self.agent.compute_advantages(q, v)
 
-                # logprobs = self.agent.get_log_prob(batch['obs'],
-                #                                    pi_action)
                 print(logprobs.requires_grad)  # Should be True
                 print(advantages.requires_grad)  # Should be True
+
                 loss = self.actor_loss(advantages, logprobs)
                 loss.backward()
+
                 if (inx+1) % self.actor_grad_accum_steps == 0 or (inx+1) == len(dataloader):
 
                     clip_grad_norm_(self.learner.model.parameters(), self.max_grad_norm)
@@ -415,7 +420,7 @@ class ArcherPlayPen(BatchRollout):
         metrics = self.evaluator.evaluate()
         # Log overall metrics to wandb
         wandb.log(metrics)
-
+        
         return metrics
 
     def _monitor_lora_gradients(self):
@@ -443,7 +448,7 @@ class ArcherPlayPen(BatchRollout):
         
         Probably does not work well - must revisit and ensure it loads properly.
         """
-        checkpoint_dir = "checkpoints"
+        checkpoint_dir = self.checkpoint_dir
         os.makedirs(checkpoint_dir, exist_ok=True)
 
         checkpoint = {
@@ -492,39 +497,42 @@ class ArcherPlayPen(BatchRollout):
         # Filter only LoRA params (name contains 'lora')
         return {k: v for k, v in base.state_dict().items() if 'lora' in k}
 
-    def lora_save_every_n(self, iteration):
+    def lora_save_every_n(self, iteration, offline=True):
         if self.lora_save_every and iteration > 0 and iteration % self.lora_save_every == 0:
-            os.makedirs("checkpoints", exist_ok=True)
+            checkpoint_dir = self.checkpoint_dir
+            os.makedirs(checkpoint_dir, exist_ok=True)
             lora_path = os.path.join(
-                "checkpoints",
+                checkpoint_dir,
                 f"{self.cfg.run_name}_lora_dict_iter_{iteration}.pt"
             )
             save_lora_state_dict(self.learner.model, lora_path)
             print(f"Saved LoRA state dict at {lora_path}")
 
-            # Load credentials from environment variables
-            hf_token = os.getenv("HF_TOKEN")
-            hf_username = os.getenv("HF_USERNAME")
-            if not hf_token or not hf_username:
-                print("HF_TOKEN or HF_USERNAME not set in environment. Skipping push to Hugging Face Hub.")
-                return
+            if not offline:
+                # Load credentials from environment variables
+                hf_token = os.getenv("HF_TOKEN")
+                hf_username = os.getenv("HF_USERNAME")
+                if not hf_token or not hf_username:
+                    print("HF_TOKEN or HF_USERNAME not set in environment. Skipping push to Hugging Face Hub.")
+                    return
 
-            repo_id = f"{hf_username}/{self.cfg.run_name}_lora_adapter_iter_{iteration}"
+                repo_id = f"{hf_username}/{self.cfg.run_name}_lora_adapter_iter_{iteration}"
 
-            # Authenticate (only needs to be done once per session)
-            login(token=hf_token)
+                # Authenticate (only needs to be done once per session)
+                try:
+                    login(token=hf_token)
 
-            # If using transformers' PEFT or similar, use push_to_hub
-            try:
-                self.learner.model.push_to_hub(
-                    repo_id=repo_id,
-                    commit_message=f"LoRA adapter at iteration {iteration}",
-                    use_temp_dir=True
-                )
-                print(f"Pushed LoRA adapter to Hugging Face Hub: {repo_id}")
-            except Exception as e:
-                print(f"Failed to push to Hugging Face Hub: {e}")
-
+                # If using transformers' PEFT or similar, use push_to_hub
+                    self.learner.model.push_to_hub(
+                        repo_id=repo_id,
+                        commit_message=f"LoRA adapter at iteration {iteration}",
+                        use_temp_dir=True
+                    )
+                    print(f"Pushed LoRA adapter to Hugging Face Hub: {repo_id}")
+                except Exception as e:
+                    print(f"Failed to push to Hugging Face Hub: {e}")
+            else:
+                print('Offline mode, skipping push')
 
 class ArcherEval(EvalBatchRollout):
     def __init__(self, learner, teacher, cfg, game_registry):
@@ -539,6 +547,11 @@ class ArcherEval(EvalBatchRollout):
         # need to reorder stuff here so that the total steps == total eval instances.
         super().__init__(learner, teacher)
         self.cfg = cfg
+
+        self.playpen_top_dir = self.cfg.top_dir
+        self.checkpoint_dir = self.cfg.checkpoint_dir
+        self.eval_results_dir = self.cfg.eval_results_dir
+
         self.forPlayer = cfg.game.learner.name
         self.learner_name = cfg.game.learner.name
         self.teacher_name = cfg.game.teacher.name
@@ -547,7 +560,7 @@ class ArcherEval(EvalBatchRollout):
         self.batch_size = cfg.trainer.inference_batch_size
         self.game_registry = game_registry
         # Add evaluation-specific callbacks
-        self.add_callback(GameRecordCallback(top_dir=f"eval_results/{self.cfg.run_name}", store_instance=True))
+        self.add_callback(GameRecordCallback(top_dir=f"{self.eval_results_dir}/{self.cfg.run_name}", store_instance=True))
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
         players = [self.learner, self.teacher] if self.teacher else [self.learner]
         with make_eval_env(self.game_spec, players, shuffle_instances = False, instances_name=self.eval_instances, batch_size=self.batch_size) as self.eval_env:
