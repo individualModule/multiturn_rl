@@ -13,8 +13,6 @@ from clemcore.backends import ModelSpec
 from modelling.archer_critic import DoubleCritic
 from clemcore.playpen import BatchReplayBuffer
 
-
-
 def load_checkpoint(checkpoint_path, trainer, lora_config):
     """
     Load a checkpoint and restore the trainer's state (DP or single GPU).
@@ -111,7 +109,7 @@ def main(cfg: DictConfig):
         device=device
     )
 
-        # Initialize LoRA for the policy model
+    # Initialize LoRA for the policy model
     lora_config = LoraConfig(
             r=cfg.lora.r,  # Rank of the low-rank matrices
             lora_alpha=cfg.lora.alpha,  # Scaling factor
@@ -177,24 +175,18 @@ def main(cfg: DictConfig):
         game_registry = game_registry
     )
     
+    if cfg.load_from_checkpoint:
+        checkpoint_path = cfg.get("checkpoint_path", None)
+        buffer_path = cfg.get("buffer_path", None)
+        if checkpoint_path and os.path.exists(checkpoint_path):
+            start_iter = load_checkpoint(checkpoint_path, trainer, lora_config)
+            print('Restarting training from checkpoint')
+            print(f'Starting from {start_iter}')
+            trainer.learn_interactive(game_registry, start_iteration=start_iter, buffer_path=buffer_path)
 
-    # Load checkpoint if specified
-    # checkpoint_path = cfg.get("checkpoint_path", None)
-    # start_iteration = 0
-    # if checkpoint_path and os.path.exists(checkpoint_path):
-    #     start_iteration = load_checkpoint(checkpoint_path, trainer)
+    else:
+        trainer.learn_interactive(game_registry)
 
-    start_iter = load_checkpoint('/home/bbmdr998/thesis/checkpoints/latest_checkpoint.pt', trainer, lora_config)
-    # Load buffer if exists
-    # buffer_path = os.path.join("checkpoints", "latest_buffer.pkl")
-    buffer_path = '/home/bbmdr998/thesis/checkpoints/latest_buffer.pkl'
-    # for regular training       
-    # start_iter = 0
-    # buffer = None
-    # Start training
-    trainer.learn_interactive(game_registry, start_iteration=start_iter, buffer_path=buffer_path)
-
-    # trainer.learn_interactive(game_registry)
 if __name__ == "__main__":
     main()
 

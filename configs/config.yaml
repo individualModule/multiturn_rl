@@ -10,7 +10,12 @@ defaults:
 top_dir: "/scratch/usr/bbmdr998/thesis/playpen"
 checkpoint_dir: "/scratch/usr/bbmdr998/thesis/checkpoints"
 eval_results_dir: "/scratch/usr/bbmdr998/thesis/playpen_eval"
-offline: True
+offline: False
+
+load_from_checkpoint: False
+checkpoint_path: "pls-fix"
+buffer_path: "plis-fix"
+
 project_name: archer-rl
 run_name: "Wordle-exp-gen-2-cont"
 group: "Wordle"
