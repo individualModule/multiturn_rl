@@ -18,6 +18,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch
+from accelerate import Accelerator
 
 from tqdm import tqdm
 import wandb
@@ -43,12 +44,14 @@ class ArcherPlayPen(BatchRollout):
     def __init__(self, learner, teacher, critic, target_critic,
                  critic_optimizer, actor_optimizer,
                  critic_loss, actor_loss, rollout_iterations,
-                 cfg: DictConfig, game_registry):
+                 cfg: DictConfig, game_registry, accelerator):
         
         super().__init__(learner, teacher)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.game_spec = None
         self.cfg = cfg
+
+        self.accelerator=accelerator
 
         # specify directories
         self.playpen_top_dir = self.cfg.top_dir
@@ -67,7 +70,7 @@ class ArcherPlayPen(BatchRollout):
         self.actor_optimizer = actor_optimizer
         self.critic_loss = critic_loss
         self.actor_loss = actor_loss
-        self.agent = ArcherAgent(self.learner, self.critic, self.target_critic, self.cfg.trainer.gamma)
+        self.agent = ArcherAgent(self.learner, self.critic, self.target_critic, self.cfg.trainer.gamma, self.accelerator)
         
         # Load parameters from config
         self.critic_epochs = self.cfg.trainer.critic_epochs
@@ -120,40 +123,54 @@ class ArcherPlayPen(BatchRollout):
 
     def learn_interactive(self, game_registry: GameRegistry, start_iteration=0, buffer_path=None):
         # Select game spec you want to train on
-        self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
-        players = [self.learner, self.teacher] if self.teacher else [self.learner]
-        # Create environment and buffer
-        with make_batch_env(self.game_spec, players, shuffle_instances = True, batch_size = self.inference_batch_size) as env:
-            if buffer_path is not None:
-                rollout_buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
-                rollout_buffer.load_buffer(buffer_path)
-                print('buffer loaded successfully!')
-                print(len(rollout_buffer.trajectories))
-            else:
-                if self.is_replay_buffer:
-                    # sample size should be equal to the steps sampled.
-                    # need to figure this one out. How many items in the buffer and on how many items do we train? 
+
+        # only execute if it's the main process
+        # only the main GPU rolls out
+        if self.accelerator.is_main_process:
+            self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
+            players = [self.learner, self.teacher] if self.teacher else [self.learner]
+            # Create environment and buffer
+            with make_batch_env(self.game_spec, players, shuffle_instances = True, batch_size = self.inference_batch_size) as env:
+                if buffer_path is not None:
                     rollout_buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
+                    rollout_buffer.load_buffer(buffer_path)
+                    print('buffer loaded successfully!')
+                    print(len(rollout_buffer.trajectories))
                 else:
-                    rollout_buffer = BatchRolloutBuffer(env)
+                    if self.is_replay_buffer:
+                        # sample size should be equal to the steps sampled.
+                        # need to figure this one out. How many items in the buffer and on how many items do we train? 
+                        rollout_buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
+                    else:
+                        rollout_buffer = BatchRolloutBuffer(env)
 
             # self._collect_rollouts(env, self.rollout_steps, buffer) 
-            self._train(rollout_buffer, env, start_iteration=start_iteration)
+        self.accelerator.wait_for_everyone()
+        self._train(rollout_buffer, env, start_iteration=start_iteration)
             # buffer.reset()
     
     def _train(self, buffer, env, start_iteration=0):
         # Training loop
+
         for iteration in range(start_iteration, self.rollout_iterations):
             torch.cuda.empty_cache() # empty cache ocassionally
             # Collect trajectories
-            rollout_metrics = self._collect_rollouts(game_env = env,
-                                   rollout_steps = self.rollout_steps,
-                                   rollout_buffer = buffer,
-                                   forPlayer = self.forPlayer ) # use this also to collect eval data
-            wandb.log(rollout_metrics)
-            # Run evaluation if it's time
-            self._run_eval(iteration, buffer)
 
+            # -- env interact only on main process --
+            if self.accelerator.is_main_process:
+
+                rollout_metrics = self._collect_rollouts(game_env = env,
+                                    rollout_steps = self.rollout_steps,
+                                    rollout_buffer = buffer,
+                                    forPlayer = self.forPlayer,
+                                    accelerator=self.accelerator ) # use this also to collect eval data
+                wandb.log(rollout_metrics)
+                # Run evaluation if it's time
+                self._run_eval(iteration, buffer)
+
+            # -- wait for rollout to finish -- 
+            self.accelerator.wait_for_everyone()
+            print(len(buffer.trajectories))
             critic_metrics = self._update_critic(self.critic_epochs,
                                                   scaled_reward=self.scale_reward, scaling_factor=self.scaling_factor, buffer=buffer)
 
@@ -167,19 +184,20 @@ class ArcherPlayPen(BatchRollout):
                 actor_metrics = {"actor/avg_loss": None, "actor/epochs": 0}  # Placeholder metrics for warmup
                 
             # Log iteration metrics
-            wandb.log({
-                    "iteration": iteration,
-                    **critic_metrics,
-                    **actor_metrics
-                })
-            if iteration >= self.warmup_iterations:
-                self.lora_save_every_n(iteration, self.offline)
-                
-            # save checkpoint every iter
-            self._save_checkpoint(iteration, buffer=buffer)            
-            # replay buffer has no reset - pop mechanism (oldest samples are popped)
-            if not self.is_replay_buffer:
-                buffer.reset()
+            if self.accelerator.is_main_process:
+                wandb.log({
+                        "iteration": iteration,
+                        **critic_metrics,
+                        **actor_metrics
+                    })
+                if iteration >= self.warmup_iterations:
+                    self.lora_save_every_n(iteration, self.offline)
+                    
+                # save checkpoint every iter
+                self._save_checkpoint(iteration, buffer=buffer)            
+                # replay buffer has no reset - pop mechanism (oldest samples are popped)
+                if not self.is_replay_buffer:
+                    buffer.reset()
 
 
         # Final evaluation after training
@@ -222,9 +240,11 @@ class ArcherPlayPen(BatchRollout):
                                     shuffle=True,
                                     collate_fn=custom_collate_fn
                                 )
+            
+            dataloader = self.accelerator.prepare(dataloader)
 
             for inx, batch in enumerate(tqdm(dataloader)):
-                batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
+                # batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
                 if scaled_reward:
                     batch['reward'] = batch['reward'] / scaling_factor
 
@@ -244,7 +264,7 @@ class ArcherPlayPen(BatchRollout):
                                         target_v1, target_v2,
                                         target_q1, target_q2)
 
-                loss.backward()
+                self.accelerator.backward(loss)
                 # Log gradient norms
 
                 grad_norms = {}
@@ -291,10 +311,11 @@ class ArcherPlayPen(BatchRollout):
                                     collate_fn=custom_collate_fn
                                 )
 
+            dataloader = self.accelerator.prepare(dataloader)
             epoch_loss = 0
             num_batches = 0
             for inx, batch in enumerate(tqdm(dataloader)):
-                batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
+                # batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
 
                 # fetches both logprob and actions in a batch
                 if scaled_reward:
@@ -312,11 +333,11 @@ class ArcherPlayPen(BatchRollout):
                 print(advantages.requires_grad)  # Should be True
 
                 loss = self.actor_loss(advantages, logprobs)
-                loss.backward()
+                self.accelerator.backward(loss)
 
                 if (inx+1) % self.actor_grad_accum_steps == 0 or (inx+1) == len(dataloader):
 
-                    clip_grad_norm_(self.learner.model.parameters(), self.max_grad_norm)
+                    self.accelerator.clip_grad_norm_(self.learner.model.parameters(), self.max_grad_norm)
                     self.actor_optimizer.step()
                     lora_grad_metrics = self._monitor_lora_gradients()
                     self.actor_optimizer.zero_grad()

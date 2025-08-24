@@ -4,7 +4,10 @@ import torch
 from torch import nn
 import os
 import pickle
+from datetime import timedelta
 
+from accelerate import Accelerator
+from accelerate import DistributedDataParallelKwargs, InitProcessGroupKwargs
 from peft import LoraConfig, get_peft_model
 from trainers.archer_trainer import ArcherPlayPen
 from clemcore.clemgame.registry import GameRegistry
@@ -90,7 +93,8 @@ def main(cfg: DictConfig):
         torch.cuda.manual_seed(cfg.seed)
     
     # Detect device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    accelerator = Accelerator(InitProcessGroupKwargs(timeout=timedelta(18000)))
+    device = accelerator.device
 
     # Initialize game registry and models
     game_registry, learner, teacher = initialize_game_and_models(cfg)
@@ -130,17 +134,12 @@ def main(cfg: DictConfig):
         if 'lora' in name: print(f"{name}: requires_grad={param.requires_grad}, shape={list(param.shape)}")
 
 
-    if getattr(cfg.trainer, "data_parallel", False) and torch.cuda.device_count() > 1:
-        print(f"Enabling DataParallel over {torch.cuda.device_count()} GPUs")
-        # Wrap learner policy (LoRA model)
-        learner.model = nn.DataParallel(learner.model)
-        # Wrap critics
-        critic = nn.DataParallel(critic)
-        target_critic = nn.DataParallel(target_critic)
-
     # (Assertions must unwrap .module when DP is used)
     def iter_named(model):
-        return model.module.named_parameters() if isinstance(model, nn.DataParallel) else model.named_parameters()
+        if hasattr(model, "module"):
+            return model.module.named_parameters()
+        else:
+            return model.named_parameters()
 
 
 
@@ -160,6 +159,14 @@ def main(cfg: DictConfig):
     critic_loss = hydra.utils.instantiate(cfg.loss.critic)
     actor_loss = hydra.utils.instantiate(cfg.loss.actor)
 
+
+    # double chekc if model is wwrapped properly
+    learner.model, critic, target_critic, actor_optimizer, critic_optimizer = accelerator.prepare(
+        learner.model, critic, target_critic, actor_optimizer, critic_optimizer
+    )
+
+    if teacher:
+        teacher.model = accelerator.prepare(teacher.model)
     # Initialize trainer
     trainer = ArcherPlayPen(
         learner=learner,
@@ -172,7 +179,8 @@ def main(cfg: DictConfig):
         actor_loss=actor_loss,
         rollout_iterations=cfg.trainer.rollout_iterations,
         cfg=cfg,
-        game_registry = game_registry
+        game_registry = game_registry,
+        accelerator=accelerator
     )
     
     if cfg.load_from_checkpoint:

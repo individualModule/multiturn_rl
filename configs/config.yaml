@@ -10,14 +10,14 @@ defaults:
 top_dir: "/scratch/usr/bbmdr998/thesis/playpen"
 checkpoint_dir: "/scratch/usr/bbmdr998/thesis/checkpoints"
 eval_results_dir: "/scratch/usr/bbmdr998/thesis/playpen_eval"
-offline: False
+offline: True
 
 load_from_checkpoint: False
-checkpoint_path: "pls-fix"
-buffer_path: "plis-fix"
+checkpoint_path: None
+buffer_path: None
 
 project_name: archer-rl
-run_name: "Wordle-exp-gen-2-cont"
+run_name: "Wordle-exp-test"
 group: "Wordle"
 seed: 42
 device: cuda
