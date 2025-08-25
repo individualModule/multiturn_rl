@@ -13,6 +13,7 @@ Writing this code for:
 - in the original code, sample function only takes a single observation - not the entire trajectory.
 """
 import pickle
+import time
 
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
@@ -53,6 +54,8 @@ class ArcherPlayPen(BatchRollout):
 
         self.accelerator=accelerator
 
+        # we write and read after each rollout to/from this location
+        self.scratch_buffer_path = self.cfg.scratch_buffer_path
         # specify directories
         self.playpen_top_dir = self.cfg.top_dir
         self.checkpoint_dir = self.cfg.checkpoint_dir
@@ -103,7 +106,7 @@ class ArcherPlayPen(BatchRollout):
 
         self.inference_batch_size = self.cfg.trainer.inference_batch_size
         self.buffer_size = self.cfg.trainer.buffer_size
-        self.evaluator = ArcherEval(learner, teacher, cfg, game_registry)
+        self.evaluator = ArcherEval(learner, teacher, cfg, game_registry, self.accelerator)
         self.lora_save_every = cfg.trainer.save_every
 
         # buffer definition and parameters
@@ -126,23 +129,23 @@ class ArcherPlayPen(BatchRollout):
 
         # only execute if it's the main process
         # only the main GPU rolls out
-        if self.accelerator.is_main_process:
-            self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
-            players = [self.learner, self.teacher] if self.teacher else [self.learner]
-            # Create environment and buffer
-            with make_batch_env(self.game_spec, players, shuffle_instances = True, batch_size = self.inference_batch_size) as env:
-                if buffer_path is not None:
+        # if self.accelerator.is_main_process:
+        self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
+        players = [self.learner, self.teacher] if self.teacher else [self.learner]
+        # Create environment and buffer
+        with make_batch_env(self.game_spec, players, shuffle_instances = True, batch_size = self.inference_batch_size) as env:
+            if buffer_path is not None:
+                rollout_buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
+                rollout_buffer.load_buffer(buffer_path)
+                print('buffer loaded successfully!')
+                print(len(rollout_buffer.trajectories))
+            else:
+                if self.is_replay_buffer:
+                    # sample size should be equal to the steps sampled.
+                    # need to figure this one out. How many items in the buffer and on how many items do we train? 
                     rollout_buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
-                    rollout_buffer.load_buffer(buffer_path)
-                    print('buffer loaded successfully!')
-                    print(len(rollout_buffer.trajectories))
                 else:
-                    if self.is_replay_buffer:
-                        # sample size should be equal to the steps sampled.
-                        # need to figure this one out. How many items in the buffer and on how many items do we train? 
-                        rollout_buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
-                    else:
-                        rollout_buffer = BatchRolloutBuffer(env)
+                    rollout_buffer = BatchRolloutBuffer(env)
 
             # self._collect_rollouts(env, self.rollout_steps, buffer) 
         self.accelerator.wait_for_everyone()
@@ -152,13 +155,14 @@ class ArcherPlayPen(BatchRollout):
     def _train(self, buffer, env, start_iteration=0):
         # Training loop
 
+
         for iteration in range(start_iteration, self.rollout_iterations):
             torch.cuda.empty_cache() # empty cache ocassionally
             # Collect trajectories
-
+            print(self.accelerator.is_main_process)
             # -- env interact only on main process --
             if self.accelerator.is_main_process:
-
+                print(f'process: {self.accelerator.process_index}')
                 rollout_metrics = self._collect_rollouts(game_env = env,
                                     rollout_steps = self.rollout_steps,
                                     rollout_buffer = buffer,
@@ -168,9 +172,13 @@ class ArcherPlayPen(BatchRollout):
                 # Run evaluation if it's time
                 self._run_eval(iteration, buffer)
 
+                self._save_training_buffer(buffer)
+                time.sleep(15)
+                
             # -- wait for rollout to finish -- 
             self.accelerator.wait_for_everyone()
-            print(len(buffer.trajectories))
+            self._load_training_buffer(buffer)
+            print(f'buffer size:{len(buffer.trajectories)} -- process: {self.accelerator.process_index}')
             critic_metrics = self._update_critic(self.critic_epochs,
                                                   scaled_reward=self.scale_reward, scaling_factor=self.scaling_factor, buffer=buffer)
 
@@ -224,6 +232,7 @@ class ArcherPlayPen(BatchRollout):
         epoch_losses = []
         
         for e in range(critic_epochs):
+            print(f"Process index: {self.accelerator.process_index}, epoch: {e} out of {critic_epochs}")                # batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
             torch.cuda.empty_cache() # empty cache ocassionally
             epoch_loss = 0
             num_batches = 0
@@ -232,7 +241,7 @@ class ArcherPlayPen(BatchRollout):
             if dataset is None or len(dataset) == 0:
                 raise ValueError("Dataset is empty after maximum retries. Please check data preparation.")
 
-            print("Dataset size:", len(dataset))
+            print("Process index: {self.accelerator.process_index} Dataset size:", len(dataset))
 
             dataloader = DataLoader(
                                     dataset,
@@ -244,12 +253,13 @@ class ArcherPlayPen(BatchRollout):
             dataloader = self.accelerator.prepare(dataloader)
 
             for inx, batch in enumerate(tqdm(dataloader)):
-                # batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
+                batch_size = len(batch['obs'])# or use another key that is always present
+                print(f"Process index: {self.accelerator.process_index}, batch_size: {batch_size}")                # batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
                 if scaled_reward:
                     batch['reward'] = batch['reward'] / scaling_factor
 
                 q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], batch['action'])
-                target_q1, target_q2 = self.agent.compute_target_q(batch['obs'])
+                target_q1, target_q2 = self.agent.compute_target_q(batch['obs'], accelerator=self.accelerator)
                 target_v1, target_v2 = self.agent.compute_target_v(batch['next_obs'],
                                                                 batch['action'],
                                                                 batch['reward'],
@@ -321,7 +331,7 @@ class ArcherPlayPen(BatchRollout):
                 if scaled_reward:
                     batch['reward'] = batch['reward'] / scaling_factor
 
-                pi_action, logprobs = self.agent.get_policy_action(batch['obs'], get_logprob=True) 
+                pi_action, logprobs = self.agent.get_policy_action(batch['obs'], get_logprob=True, accelerator=self.accelerator) 
                 q1, q2, v1, v2 = self.agent.get_critic_values(batch['obs'], pi_action, detach_model=True)
                 #take minumum of q and minimum of v
                 q = torch.minimum(q1, q2)
@@ -562,10 +572,28 @@ class ArcherPlayPen(BatchRollout):
             }           
             metrics.update(lora_grad_metrics)  # Add to existing metrics dictionary         
             wandb.log(metrics)
+    
+    def _save_training_buffer(self, buffer):
+        os.makedirs(self.scratch_buffer_path, exist_ok=True)
+        save_path = os.path.join(
+            self.scratch_buffer_path,
+            'training_buffer.pkl'
+        )
+        buffer.save_buffer(save_path, default_name=False)
+        print('buffer saved')
 
+    def _load_training_buffer(self, buffer):
+        save_path = os.path.join(
+            self.scratch_buffer_path,
+            'training_buffer.pkl'
+        )
+        buffer.load_buffer(save_path)
+        print('buffer successfully reloaded')
+        return buffer
+    
 
 class ArcherEval(EvalBatchRollout):
-    def __init__(self, learner, teacher, cfg, game_registry):
+    def __init__(self, learner, teacher, cfg, game_registry, accelerator):
         """
         Evaluation class for ArcherPlayPen.
         Args:
@@ -577,7 +605,7 @@ class ArcherEval(EvalBatchRollout):
         # need to reorder stuff here so that the total steps == total eval instances.
         super().__init__(learner, teacher)
         self.cfg = cfg
-
+        self.accelerator = accelerator
         self.playpen_top_dir = self.cfg.top_dir
         self.checkpoint_dir = self.cfg.checkpoint_dir
         self.eval_results_dir = self.cfg.eval_results_dir
@@ -614,6 +642,7 @@ class ArcherEval(EvalBatchRollout):
                 game_env=self.eval_env,
                 rollout_buffer=self.eval_buffer,
                 forPlayer=self.forPlayer,
+                accelerator=self.accelerator
             )
 
             # Process evaluation trajectories

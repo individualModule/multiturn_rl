@@ -136,7 +136,7 @@ class ArcherAgent(nn.Module):
             "content": response
         }
 
-    def get_policy_action(self, observations: List[List[dict]], get_logprob=False) -> Union[List[List[dict]], Tuple[List[List[dict]], torch.Tensor]]:
+    def get_policy_action(self, observations: List[List[dict]], get_logprob=False, accelerator=None) -> Union[List[List[dict]], Tuple[List[List[dict]], torch.Tensor]]:
         """
         Sample the action from the policy using the Player class's generate_action_and_logprobs.
         Optionally return log probabilities of the actions.
@@ -151,7 +151,7 @@ class ArcherAgent(nn.Module):
         """
         # Use the generate_action_and_logprobs function
         # actions, log_probs = self.accelerator.unwrap_model(self.policy.model).generate_action_and_logprobs(observations, return_logprobs = get_logprob)
-        actions, log_probs = self.policy.generate_action_and_logprobs(observations, return_logprobs = get_logprob)
+        actions, log_probs = self.policy.generate_action_and_logprobs(observations, return_logprobs = get_logprob, accelerator=accelerator)
 
         if get_logprob:
             return actions, log_probs
@@ -174,14 +174,14 @@ class ArcherAgent(nn.Module):
         # The underlying HuggingFace model is accessed through player.model
         return self.policy.calculate_logprobs(observation, action)
 
-    def compute_target_q(self, observation: List[List[dict]]):
+    def compute_target_q(self, observation: List[List[dict]], accelerator):
         """
         Compute target Q values using the policy generated from the sample.
         """
 
         with torch.no_grad():
             obs = copy.deepcopy(observation)
-            pi_action = self.get_policy_action(obs)
+            pi_action = self.get_policy_action(obs, accelerator=accelerator)
             # print(pi_action)
             target_q1, target_q2, _ , _ = self.target_critic(obs, pi_action)
         

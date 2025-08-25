@@ -93,7 +93,10 @@ def main(cfg: DictConfig):
         torch.cuda.manual_seed(cfg.seed)
     
     # Detect device
-    accelerator = Accelerator(InitProcessGroupKwargs(timeout=timedelta(18000)))
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    accelerator = Accelerator(
+        kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(18000)), ddp_kwargs]
+    )
     device = accelerator.device
 
     # Initialize game registry and models
@@ -182,7 +185,7 @@ def main(cfg: DictConfig):
         game_registry = game_registry,
         accelerator=accelerator
     )
-    
+    accelerator.wait_for_everyone()
     if cfg.load_from_checkpoint:
         checkpoint_path = cfg.get("checkpoint_path", None)
         buffer_path = cfg.get("buffer_path", None)
