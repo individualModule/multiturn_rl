@@ -18,7 +18,7 @@ checkpoint_path: None
 buffer_path: None
 
 project_name: archer-rl
-run_name: "Wordle-exp-test"
+run_name: "Wordle-exp-gen_3"
 group: "Wordle"
 seed: 42
 device: cuda
