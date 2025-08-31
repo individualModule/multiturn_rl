@@ -133,8 +133,8 @@ def main(cfg: DictConfig):
             start_iter, best_metric, checkpoint_config, checkpoint_data = load_checkpoint_before_wrapping(
                 checkpoint_path, learner, critic, target_critic, lora_config
             )
-            if checkpoint_config:
-                cfg = checkpoint_config  # Update config from checkpoint if available
+            # if checkpoint_config:
+            #     cfg = checkpoint_config  # Update config from checkpoint if available
         else:
             print("Checkpoint path not found, starting fresh training")
     
