@@ -48,7 +48,7 @@ def load_checkpoint(checkpoint_path, trainer, lora_config):
     trainer.best_metric = checkpoint.get("best_metric", float("-inf"))
     # (Optional) you could merge cfg instead of overwrite
     trainer.cfg = checkpoint.get("config", trainer.cfg)
-
+    
     iteration = checkpoint.get("iteration", 0)
     print(f"Loaded checkpoint {checkpoint_path} (iteration {iteration})")
     return iteration

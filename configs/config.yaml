@@ -7,12 +7,18 @@ defaults:
   - lora: default
   - _self_
 
+scratch_buffer_path: "/scratch/usr/bbmdr998/thesis/buffers"
 top_dir: "/scratch/usr/bbmdr998/thesis/playpen"
 checkpoint_dir: "/scratch/usr/bbmdr998/thesis/checkpoints"
 eval_results_dir: "/scratch/usr/bbmdr998/thesis/playpen_eval"
 offline: True
+
+load_from_checkpoint: False
+checkpoint_path: None
+buffer_path: None
+
 project_name: archer-rl
-run_name: "Wordle-exp-gen-2-cont"
+run_name: "Wordle-exp-gen_3"
 group: "Wordle"
 seed: 42
 device: cuda
