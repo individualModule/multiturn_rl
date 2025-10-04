@@ -113,13 +113,14 @@ def main(cfg: DictConfig):
         device=device
     )
 
-    # Initialize LoRA for the policy model
-    lora_config = LoraConfig(
-            r=cfg.lora.r,  # Rank of the low-rank matrices
-            lora_alpha=cfg.lora.alpha,  # Scaling factor
-            lora_dropout=cfg.lora.dropout,  # Dropout for LoRA
-            bias=cfg.lora.bias
-        )
+    if not cfg.lora_base:
+        # Initialize LoRA for the policy model
+        lora_config = LoraConfig(
+                r=cfg.lora.r,  # Rank of the low-rank matrices
+                lora_alpha=cfg.lora.alpha,  # Scaling factor
+                lora_dropout=cfg.lora.dropout,  # Dropout for LoRA
+                bias=cfg.lora.bias
+            )
     
     # Variables for checkpoint loading
     start_iter = 0
@@ -140,6 +141,7 @@ def main(cfg: DictConfig):
     
     # Apply LoRA if not loaded from checkpoint
     if not hasattr(learner.model, "peft_config"):
+        print('getting peft model')
         learner.model = get_peft_model(learner.model, lora_config)
 
     for name, param in learner.model.named_parameters():
@@ -180,8 +182,8 @@ def main(cfg: DictConfig):
         learner.model, critic, target_critic, actor_optimizer, critic_optimizer
     )
 
-    if teacher:
-        teacher.model = accelerator.prepare(teacher.model)
+    # if teacher:
+    #     teacher.model = accelerator.prepare(teacher.model)
     
     # Load optimizer states AFTER wrapping if we have checkpoint data
     if checkpoint_data is not None:
