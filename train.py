@@ -4,7 +4,10 @@ import torch
 from torch import nn
 import os
 import pickle
+from datetime import timedelta
 
+from accelerate import Accelerator
+from accelerate import DistributedDataParallelKwargs, InitProcessGroupKwargs
 from peft import LoraConfig, get_peft_model
 from trainers.archer_trainer import ArcherPlayPen
 from clemcore.clemgame.registry import GameRegistry
@@ -13,11 +16,9 @@ from clemcore.backends import ModelSpec
 from modelling.archer_critic import DoubleCritic
 from clemcore.playpen import BatchReplayBuffer
 
-
-
-def load_checkpoint(checkpoint_path, trainer, lora_config):
+def load_checkpoint_before_wrapping(checkpoint_path, learner, critic, target_critic, lora_config):
     """
-    Load a checkpoint and restore the trainer's state (DP or single GPU).
+    Load a checkpoint before models are wrapped with accelerator.
     """
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
@@ -25,33 +26,30 @@ def load_checkpoint(checkpoint_path, trainer, lora_config):
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
     # (Re)attach LoRA if not already present
-    if not hasattr(trainer.learner.model, "peft_config"):
-        trainer.learner.model = get_peft_model(trainer.learner.model, lora_config)
+    if not hasattr(learner.model, "peft_config"):
+        learner.model = get_peft_model(learner.model, lora_config)
 
-    # Unwrap helper
-    def unwrap(m):
-        return m.module if isinstance(m, nn.DataParallel) else m
+    # Load LoRA (policy) weights - models are not wrapped yet
+    learner.model.load_state_dict(checkpoint["lora_state_dict"], strict=False)
 
-    # Load LoRA (policy) weights
-    learner_ref = unwrap(trainer.learner.model)
-    learner_ref.load_state_dict(checkpoint["lora_state_dict"], strict=False)
+    # Load critics - models are not wrapped yet
+    critic.load_state_dict(checkpoint["critic_state_dict"])
+    target_critic.load_state_dict(checkpoint["target_critic_state_dict"])
 
-    # Load critics
-    unwrap(trainer.critic).load_state_dict(checkpoint["critic_state_dict"])
-    unwrap(trainer.target_critic).load_state_dict(checkpoint["target_critic_state_dict"])
-
-    # Optimizers (safe even if shapes match after DP wrap)
-    trainer.critic_optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
-    trainer.actor_optimizer.load_state_dict(checkpoint["actor_optimizer_state_dict"])
-
-    # Misc
-    trainer.best_metric = checkpoint.get("best_metric", float("-inf"))
-    # (Optional) you could merge cfg instead of overwrite
-    trainer.cfg = checkpoint.get("config", trainer.cfg)
-    
     iteration = checkpoint.get("iteration", 0)
+    best_metric = checkpoint.get("best_metric", float("-inf"))
+    config = checkpoint.get("config", None)
+    
     print(f"Loaded checkpoint {checkpoint_path} (iteration {iteration})")
-    return iteration
+    return iteration, best_metric, config, checkpoint
+
+def load_optimizer_states(checkpoint, critic_optimizer, actor_optimizer):
+    """
+    Load optimizer states after optimizers are created and wrapped.
+    """
+    # Load optimizer states (after they're wrapped)
+    critic_optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
+    actor_optimizer.load_state_dict(checkpoint["actor_optimizer_state_dict"])
 
 # to be reworked, hydra not doing well
 # don't load teacher if teacher is not needed
@@ -92,7 +90,11 @@ def main(cfg: DictConfig):
         torch.cuda.manual_seed(cfg.seed)
     
     # Detect device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    accelerator = Accelerator(
+        kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(18000)), ddp_kwargs]
+    )
+    device = accelerator.device
 
     # Initialize game registry and models
     game_registry, learner, teacher = initialize_game_and_models(cfg)
@@ -111,7 +113,7 @@ def main(cfg: DictConfig):
         device=device
     )
 
-        # Initialize LoRA for the policy model
+    # Initialize LoRA for the policy model
     lora_config = LoraConfig(
             r=cfg.lora.r,  # Rank of the low-rank matrices
             lora_alpha=cfg.lora.alpha,  # Scaling factor
@@ -119,7 +121,26 @@ def main(cfg: DictConfig):
             bias=cfg.lora.bias
         )
     
-    learner.model = get_peft_model(learner.model, lora_config)
+    # Variables for checkpoint loading
+    start_iter = 0
+    best_metric = float("-inf")
+    checkpoint_data = None
+    
+    # Load checkpoint BEFORE wrapping models if specified
+    if cfg.load_from_checkpoint:
+        checkpoint_path = cfg.get("checkpoint_path", None)
+        if checkpoint_path and os.path.exists(checkpoint_path):
+            start_iter, best_metric, checkpoint_config, checkpoint_data = load_checkpoint_before_wrapping(
+                checkpoint_path, learner, critic, target_critic, lora_config
+            )
+            # if checkpoint_config:
+            #     cfg = checkpoint_config  # Update config from checkpoint if available
+        else:
+            print("Checkpoint path not found, starting fresh training")
+    
+    # Apply LoRA if not loaded from checkpoint
+    if not hasattr(learner.model, "peft_config"):
+        learner.model = get_peft_model(learner.model, lora_config)
 
     for name, param in learner.model.named_parameters():
         if 'lora' in name:
@@ -131,20 +152,12 @@ def main(cfg: DictConfig):
     for name, param in learner.model.named_parameters():
         if 'lora' in name: print(f"{name}: requires_grad={param.requires_grad}, shape={list(param.shape)}")
 
-
-    if getattr(cfg.trainer, "data_parallel", False) and torch.cuda.device_count() > 1:
-        print(f"Enabling DataParallel over {torch.cuda.device_count()} GPUs")
-        # Wrap learner policy (LoRA model)
-        learner.model = nn.DataParallel(learner.model)
-        # Wrap critics
-        critic = nn.DataParallel(critic)
-        target_critic = nn.DataParallel(target_critic)
-
     # (Assertions must unwrap .module when DP is used)
     def iter_named(model):
-        return model.module.named_parameters() if isinstance(model, nn.DataParallel) else model.named_parameters()
-
-
+        if hasattr(model, "module"):
+            return model.module.named_parameters()
+        else:
+            return model.named_parameters()
 
     # Add assertions to verify LoRA parameters are trainable
     lora_params_count = sum(1 for n, p in iter_named(learner.model) if 'lora' in n)
@@ -155,12 +168,24 @@ def main(cfg: DictConfig):
     assert non_lora_trainable == 0
 
     print(f"\nVerified: {trainable_lora_params} LoRA parameters are trainable, all other parameters are frozen")
-    critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic,
-                                               params=(critic.module if isinstance(critic, nn.DataParallel) else critic).parameters())
-    actor_optimizer = hydra.utils.instantiate(cfg.optimizer.actor,
-                                              params=learner.model.module.parameters() if isinstance(learner.model, nn.DataParallel) else learner.model.parameters())
+    
+    # Create optimizers
+    critic_optimizer = hydra.utils.instantiate(cfg.optimizer.critic, params=critic.parameters())
+    actor_optimizer = hydra.utils.instantiate(cfg.optimizer.actor, params=learner.model.parameters())
     critic_loss = hydra.utils.instantiate(cfg.loss.critic)
     actor_loss = hydra.utils.instantiate(cfg.loss.actor)
+
+    # NOW wrap models with accelerator
+    learner.model, critic, target_critic, actor_optimizer, critic_optimizer = accelerator.prepare(
+        learner.model, critic, target_critic, actor_optimizer, critic_optimizer
+    )
+
+    if teacher:
+        teacher.model = accelerator.prepare(teacher.model)
+    
+    # Load optimizer states AFTER wrapping if we have checkpoint data
+    if checkpoint_data is not None:
+        load_optimizer_states(checkpoint_data, critic_optimizer, actor_optimizer)
 
     # Initialize trainer
     trainer = ArcherPlayPen(
@@ -174,31 +199,22 @@ def main(cfg: DictConfig):
         actor_loss=actor_loss,
         rollout_iterations=cfg.trainer.rollout_iterations,
         cfg=cfg,
-        game_registry = game_registry
+        game_registry = game_registry,
+        accelerator=accelerator
     )
     
+    # Set the best metric from checkpoint
+    trainer.best_metric = best_metric
+    
+    accelerator.wait_for_everyone()
+    
+    if cfg.load_from_checkpoint and start_iter > 0:
+        buffer_path = cfg.get("buffer_path", None)
+        print('Restarting training from checkpoint')
+        print(f'Starting from {start_iter}')
+        trainer.learn_interactive(game_registry, start_iteration=start_iter, buffer_path=buffer_path)
+    else:
+        trainer.learn_interactive(game_registry)
 
-    # Load checkpoint if specified
-    # checkpoint_path = cfg.get("checkpoint_path", None)
-    # start_iteration = 0
-    # if checkpoint_path and os.path.exists(checkpoint_path):
-    #     start_iteration = load_checkpoint(checkpoint_path, trainer)
-
-    start_iter = load_checkpoint('/home/bbmdr998/thesis/checkpoints/latest_checkpoint.pt', trainer, lora_config)
-    # Load buffer if exists
-    # buffer_path = os.path.join("checkpoints", "latest_buffer.pkl")
-    buffer_path = '/home/bbmdr998/thesis/checkpoints/latest_buffer.pkl'
-    # for regular training       
-    # start_iter = 0
-    # buffer = None
-    # Start training
-    trainer.learn_interactive(game_registry, start_iteration=start_iter, buffer_path=buffer_path)
-
-    # trainer.learn_interactive(game_registry)
 if __name__ == "__main__":
     main()
-
-
-
-
-
