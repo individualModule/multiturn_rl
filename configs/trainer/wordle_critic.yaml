@@ -1,4 +1,4 @@
-rollout_steps: 128
+rollout_steps: 12
 rollout_iterations: 100
 eval_frequency: 1
 eval_episodes: 5
