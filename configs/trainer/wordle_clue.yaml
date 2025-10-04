@@ -1,4 +1,4 @@
-rollout_steps: 128
+rollout_steps: 256
 rollout_iterations: 100
 eval_frequency: 1
 eval_episodes: 5
@@ -22,6 +22,6 @@ step_size: 256
 inference_batch_size: 64
 actor_grad_accum_steps: 64
 critic_grad_accum_steps: 4
-buffer_size: 5120
+buffer_size: 3840
 save_every: 5
 # make sure that step size, grad accum and batch sizes add up.
