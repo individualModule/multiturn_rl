@@ -193,6 +193,9 @@ class ArcherPlayPen(BatchRollout):
                 
             # Log iteration metrics
             if self.accelerator.is_main_process:
+                print('Critic metrics:')
+                print(critic_metrics)
+                print('------------')
                 wandb.log({
                         "iteration": iteration,
                         **critic_metrics,
