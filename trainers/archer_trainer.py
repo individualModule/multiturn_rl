@@ -47,6 +47,8 @@ class ArcherPlayPen(BatchRollout):
                  critic_loss, actor_loss, rollout_iterations,
                  cfg: DictConfig, game_registry, accelerator):
         
+        self.is_updated = False
+
         super().__init__(learner, teacher)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.game_spec = None
@@ -168,6 +170,17 @@ class ArcherPlayPen(BatchRollout):
                                     rollout_buffer = buffer,
                                     forPlayer = self.forPlayer,
                                     accelerator=self.accelerator ) # use this also to collect eval data
+
+                if (rollout_metrics.get('rollout/avg_game_length', 0) > 3.5) and (not self.is_updated):
+                    self.actor_batch_size = 2
+                    self.actor_grad_accum_steps = 128
+                    self.critic_batch_size = 32
+                    self.critic_grad_accum_steps = 8
+                    self.is_updated = True
+                    print(f"Long games detected (avg length: {rollout_metrics['rollout/avg_game_length']:.2f})")
+                    print(f"Reducing bs to: Actor {self.actor_batch_size} AG: {self.actor_grad_accum_steps}")
+                    print(f"Critic: {self.critic_batch_size}, BG: {self.critic_grad_accum_steps}")
+                    
                 wandb.log(rollout_metrics)
                 # Run evaluation if it's time
                 self._run_eval(iteration, buffer)

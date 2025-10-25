@@ -13,7 +13,7 @@ checkpoint_dir: "/scratch/usr/bbmdr998/thesis/checkpoints"
 eval_results_dir: "/scratch/usr/bbmdr998/thesis/playpen_eval"
 offline: False
 
-lora_base: True # True if using a previously finetuned lora checkpoint
+lora_base: True # True if using a previously finetuned lora checkpoint. False if continuing training
 load_from_checkpoint: False
 checkpoint_path: None
 buffer_path: None

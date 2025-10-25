@@ -1,5 +1,5 @@
 rollout_steps: 256
-rollout_iterations: 100
+rollout_iterations: 71
 eval_frequency: 1
 eval_episodes: 5
 critic_epochs: 20
@@ -11,8 +11,8 @@ critic_batch_size: 64
 actor_batch_size: 4   
 num_workers: 1
 gamma: 0.98
-train_instances: "instances_withcritic.json"
-eval_instances: "instances_withcritic_v1.6.json"
+train_instances: "instances.json"
+eval_instances: "instances_v1.6.json"
 eval_rollout_steps: 36
 warmup_iters: 10
 scale_reward: True
