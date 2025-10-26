@@ -1,7 +1,7 @@
 spec_name: "referencegame"  # Replace with actual game spec name
 
 learner:
-  model_name: "Meta-Llama-3.1-8B-Instruct"   # Replace with actual model name
+  model_name: "Wordle-curr-taboo"   # Replace with actual model name
   max_tokens: 350
   temperature: 1.0
   name: "Player 2" # instruction follower
