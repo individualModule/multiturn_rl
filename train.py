@@ -119,7 +119,10 @@ def main(cfg: DictConfig):
                 r=cfg.lora.r,  # Rank of the low-rank matrices
                 lora_alpha=cfg.lora.alpha,  # Scaling factor
                 lora_dropout=cfg.lora.dropout,  # Dropout for LoRA
-                bias=cfg.lora.bias
+                bias=cfg.lora.bias,
+                target_modules=cfg.lora.target_modules,  # Add this line
+                task_type=cfg.lora.task_type  # Add this line
+
             )
     
     # Variables for checkpoint loading

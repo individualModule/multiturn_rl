@@ -17,11 +17,11 @@ scale_reward: True
 scaling_factor: 100.00
 is_replay_buffer: True
 step_size: 256
-inference_batch_size: 64
+inference_batch_size: 48
 actor_grad_accum_steps: 128
 actor_batch_size: 2   
 critic_grad_accum_steps: 4
-critic_batch_size: 64  
+critic_batch_size: 32  
 buffer_size: 3840
 save_every: 5
 # make sure that step size, grad accum and batch sizes add up.

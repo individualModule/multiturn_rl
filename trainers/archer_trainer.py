@@ -171,15 +171,15 @@ class ArcherPlayPen(BatchRollout):
                                     forPlayer = self.forPlayer,
                                     accelerator=self.accelerator ) # use this also to collect eval data
 
-                if (rollout_metrics.get('rollout/avg_game_length', 0) > 3.5) and (not self.is_updated):
-                    self.actor_batch_size = 2
-                    self.actor_grad_accum_steps = 128
-                    self.critic_batch_size = 32
-                    self.critic_grad_accum_steps = 8
-                    self.is_updated = True
-                    print(f"Long games detected (avg length: {rollout_metrics['rollout/avg_game_length']:.2f})")
-                    print(f"Reducing bs to: Actor {self.actor_batch_size} AG: {self.actor_grad_accum_steps}")
-                    print(f"Critic: {self.critic_batch_size}, BG: {self.critic_grad_accum_steps}")
+                # if (rollout_metrics.get('rollout/avg_game_length', 0) > 3.5) and (not self.is_updated):
+                #     self.actor_batch_size = 2
+                #     self.actor_grad_accum_steps = 128
+                #     self.critic_batch_size = 32
+                #     self.critic_grad_accum_steps = 8
+                #     self.is_updated = True
+                #     print(f"Long games detected (avg length: {rollout_metrics['rollout/avg_game_length']:.2f})")
+                #     print(f"Reducing bs to: Actor {self.actor_batch_size} AG: {self.actor_grad_accum_steps}")
+                #     print(f"Critic: {self.critic_batch_size}, BG: {self.critic_grad_accum_steps}")
                     
                 wandb.log(rollout_metrics)
                 # Run evaluation if it's time
@@ -206,9 +206,9 @@ class ArcherPlayPen(BatchRollout):
                 
             # Log iteration metrics
             if self.accelerator.is_main_process:
-                print('Critic metrics:')
-                print(critic_metrics)
-                print('------------')
+                # print('Critic metrics:')
+                # print(critic_metrics)
+                # print('------------')
                 wandb.log({
                         "iteration": iteration,
                         **critic_metrics,
