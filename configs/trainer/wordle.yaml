@@ -20,7 +20,7 @@ step_size: 256
 inference_batch_size: 48
 actor_grad_accum_steps: 128
 actor_batch_size: 2   
-critic_grad_accum_steps: 4
+critic_grad_accum_steps: 8
 critic_batch_size: 32  
 buffer_size: 3840
 save_every: 5
