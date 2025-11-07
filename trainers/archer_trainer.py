@@ -133,7 +133,18 @@ class ArcherPlayPen(BatchRollout):
         # only the main GPU rolls out
         # if self.accelerator.is_main_process:
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
-        players = [self.learner, self.teacher] if self.teacher else [self.learner]
+
+        if self.learner_name == 'Player 2':
+            players = [self.teacher, self.learner] if self.teacher else [self.learner]
+        else:
+            players = [self.learner, self.teacher] if self.teacher else [self.learner]
+
+        print("--Main Env---")
+        print(f"Learner: {self.learner_name} -- Teacher: {self.teacher_name} -- players: {players}")
+
+
+
+        # players = [self.learner, self.teacher] if self.teacher else [self.learner]
         # Create environment and buffer
         with make_batch_env(self.game_spec, players, shuffle_instances = True, batch_size = self.inference_batch_size) as env:
             if buffer_path is not None:
@@ -171,15 +182,6 @@ class ArcherPlayPen(BatchRollout):
                                     forPlayer = self.forPlayer,
                                     accelerator=self.accelerator ) # use this also to collect eval data
 
-                # if (rollout_metrics.get('rollout/avg_game_length', 0) > 3.5) and (not self.is_updated):
-                #     self.actor_batch_size = 2
-                #     self.actor_grad_accum_steps = 128
-                #     self.critic_batch_size = 32
-                #     self.critic_grad_accum_steps = 8
-                #     self.is_updated = True
-                #     print(f"Long games detected (avg length: {rollout_metrics['rollout/avg_game_length']:.2f})")
-                #     print(f"Reducing bs to: Actor {self.actor_batch_size} AG: {self.actor_grad_accum_steps}")
-                #     print(f"Critic: {self.critic_batch_size}, BG: {self.critic_grad_accum_steps}")
                     
                 wandb.log(rollout_metrics)
                 # Run evaluation if it's time
@@ -206,9 +208,6 @@ class ArcherPlayPen(BatchRollout):
                 
             # Log iteration metrics
             if self.accelerator.is_main_process:
-                # print('Critic metrics:')
-                # print(critic_metrics)
-                # print('------------')
                 wandb.log({
                         "iteration": iteration,
                         **critic_metrics,
@@ -281,10 +280,6 @@ class ArcherPlayPen(BatchRollout):
                                                                 batch['reward'],
                                                                 batch['done'])
 
-                print(q1.requires_grad)
-                print(v1.requires_grad)
-                print(target_q1.requires_grad)
-                print(target_v1.requires_grad)
 
                 loss = self.critic_loss(q1, q2, v1, v2,
                                         target_v1, target_v2,
@@ -354,9 +349,6 @@ class ArcherPlayPen(BatchRollout):
                 v = torch.minimum(v1, v2)
 
                 advantages = self.agent.compute_advantages(q, v)
-
-                print(logprobs.requires_grad)  # Should be True
-                print(advantages.requires_grad)  # Should be True
 
                 loss = self.actor_loss(advantages, logprobs)
                 self.accelerator.backward(loss)
@@ -636,7 +628,15 @@ class ArcherEval(EvalBatchRollout):
         # Add evaluation-specific callbacks
         self.add_callback(GameRecordCallback(top_dir=f"{self.eval_results_dir}/{self.cfg.run_name}", store_instance=True))
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
-        players = [self.learner, self.teacher] if self.teacher else [self.learner]
+
+        if self.learner_name == 'Player 2':
+            players = [self.teacher, self.learner] if self.teacher else [self.learner]
+        else:
+            players = [self.learner, self.teacher] if self.teacher else [self.learner]
+
+        print("--Eval env---")
+        print(f"Learner: {self.learner_name} -- Teacher: {self.teacher_name} -- players: {players}")
+
         with make_eval_env(self.game_spec, players, shuffle_instances = False, instances_name=self.eval_instances, batch_size=self.batch_size) as self.eval_env:
             self.eval_buffer = BatchRolloutBuffer(self.eval_env)
 

@@ -1,5 +1,5 @@
-rollout_steps: 256
-rollout_iterations: 100
+rollout_steps: 256 # 256 did not yield a good enough critic std. See with a higher rollout size. could also be bad policy
+rollout_iterations: 70
 eval_frequency: 1
 eval_episodes: 5
 critic_epochs: 20
@@ -7,11 +7,9 @@ actor_epochs: 2
 max_grad_norm: 0.5
 critic_max_grad_norm: 4.0
 tau: 0.1 # actual fn is 1-tau so our update is 0.9
-critic_batch_size: 64  
-actor_batch_size: 4   
 num_workers: 1
 gamma: 0.98
-train_instances: "instances_withcritic.json"
+train_instances: "training_instances_critic.json"
 eval_instances: "instances_withcritic_v1.6.json"
 eval_rollout_steps: 36
 warmup_iters: 10
@@ -19,9 +17,11 @@ scale_reward: True
 scaling_factor: 100.00
 is_replay_buffer: True
 step_size: 256
-inference_batch_size: 64
-actor_grad_accum_steps: 64
-critic_grad_accum_steps: 4
-buffer_size: 3840
+inference_batch_size: 30
+actor_grad_accum_steps: 128
+actor_batch_size: 2   
+critic_grad_accum_steps: 8
+critic_batch_size: 32  
+buffer_size: 3840 # 3840 is the 256 config
 save_every: 5
 # make sure that step size, grad accum and batch sizes add up.

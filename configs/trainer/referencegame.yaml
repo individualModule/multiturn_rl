@@ -20,8 +20,8 @@ step_size: 256
 inference_batch_size: 256
 actor_grad_accum_steps: 32
 actor_batch_size: 8
-critic_grad_accum_steps: 2
-critic_batch_size: 128  # Increase batch size since it's single turn.
+critic_grad_accum_steps: 4
+critic_batch_size: 64  # Increase batch size since it's single turn.
 buffer_size: 3840 # 15x rollout steps.
 save_every: 5
 # make sure that step size, grad accum and batch sizes add up.
