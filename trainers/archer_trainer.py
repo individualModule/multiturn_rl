@@ -106,6 +106,8 @@ class ArcherPlayPen(BatchRollout):
         self.scaling_factor = self.cfg.trainer.scaling_factor
         self.scale_reward = self.cfg.trainer.scale_reward
 
+        self.train_instances = self.cfg.trainer.train_instances
+
         self.inference_batch_size = self.cfg.trainer.inference_batch_size
         self.buffer_size = self.cfg.trainer.buffer_size
         self.evaluator = ArcherEval(learner, teacher, cfg, game_registry, self.accelerator)
@@ -146,7 +148,7 @@ class ArcherPlayPen(BatchRollout):
 
         # players = [self.learner, self.teacher] if self.teacher else [self.learner]
         # Create environment and buffer
-        with make_batch_env(self.game_spec, players, shuffle_instances = True, batch_size = self.inference_batch_size) as env:
+        with make_batch_env(self.game_spec, players, shuffle_instances = True, batch_size = self.inference_batch_size, instances_name=self.train_instances) as env:
             if buffer_path is not None:
                 rollout_buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
                 rollout_buffer.load_buffer(buffer_path)
