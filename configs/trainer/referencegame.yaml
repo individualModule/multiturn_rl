@@ -1,5 +1,5 @@
 rollout_steps: 512 # it's a single turn game, so we increase the rollout steps
-rollout_iterations: 71
+rollout_iterations: 91
 eval_frequency: 1
 eval_episodes: 5
 critic_epochs: 20
@@ -12,11 +12,11 @@ gamma: 1
 train_instances: "merged_instances.json"
 eval_instances: "instances_v1.6_en.json"
 eval_rollout_steps: 36
-warmup_iters: 10
+warmup_iters: 20
 scale_reward: True
 scaling_factor: 100.00
 is_replay_buffer: True
-step_size: 512
+step_size: 256
 inference_batch_size: 256
 actor_grad_accum_steps: 32
 actor_batch_size: 8

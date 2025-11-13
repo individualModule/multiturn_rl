@@ -77,6 +77,7 @@ def initialize_game_and_models(cfg: DictConfig):
         teacher_backend = backend_registry.get_backend_for(teacher_spec.backend)
         teacher = teacher_backend.get_model_for(teacher_spec)
         teacher.set_gen_args(temperature = cfg.game.teacher.temperature, max_tokens=cfg.game.teacher.max_tokens)
+        print(teacher)
     else:
         teacher = None
 

@@ -121,26 +121,27 @@ class ArcherPlayPen(BatchRollout):
         self.add_callback(RolloutProgressCallback(self.rollout_steps))
 
         self.best_metric = float('-inf')
-
+        print('initializing wandb')
         # Initialize wandb with config
         wandb.init(project=self.cfg.project_name,
                    name=self.cfg.run_name,
                    group=self.cfg.group,
                   config=dict(self.cfg))
-
+        print('Wandb initialized')
     def learn_interactive(self, game_registry: GameRegistry, start_iteration=0, buffer_path=None):
         # Select game spec you want to train on
 
         # only execute if it's the main process
         # only the main GPU rolls out
         # if self.accelerator.is_main_process:
+        print('Load game spec')
         self.game_spec = game_registry.get_game_specs_that_unify_with(self.cfg.game.spec_name)[0]
 
         if self.learner_name == 'Player 2':
             players = [self.teacher, self.learner] if self.teacher else [self.learner]
         else:
             players = [self.learner, self.teacher] if self.teacher else [self.learner]
-
+        
         print("--Main Env---")
         print(f"Learner: {self.learner_name} -- Teacher: {self.teacher_name} -- players: {players}")
 
@@ -161,9 +162,10 @@ class ArcherPlayPen(BatchRollout):
                     rollout_buffer = BatchReplayBuffer(env, buffer_size=self.buffer_size, sample_size=self.step_size)
                 else:
                     rollout_buffer = BatchRolloutBuffer(env)
-
+        print('Train Environment created')
             # self._collect_rollouts(env, self.rollout_steps, buffer) 
         self.accelerator.wait_for_everyone()
+        print(" -- starting training -- ")
         self._train(rollout_buffer, env, start_iteration=start_iteration)
             # buffer.reset()
     
@@ -178,13 +180,19 @@ class ArcherPlayPen(BatchRollout):
             # -- env interact only on main process --
             if self.accelerator.is_main_process:
                 print(f'process: {self.accelerator.process_index}')
+                print("TODO: Collecting Rollouts")
+                
+                print(f"Learner model device: {next(self.learner.model.parameters()).device}")
+                print(f"Critic device: {next(self.critic.parameters()).device}")
+
                 rollout_metrics = self._collect_rollouts(game_env = env,
                                     rollout_steps = self.rollout_steps,
                                     rollout_buffer = buffer,
                                     forPlayer = self.forPlayer,
                                     accelerator=self.accelerator ) # use this also to collect eval data
+                
+                print("TODO: Rollout collected")
 
-                    
                 wandb.log(rollout_metrics)
                 # Run evaluation if it's time
                 self._run_eval(iteration, buffer)
@@ -638,9 +646,11 @@ class ArcherEval(EvalBatchRollout):
 
         print("--Eval env---")
         print(f"Learner: {self.learner_name} -- Teacher: {self.teacher_name} -- players: {players}")
-
+        print("TODO: Make eval env")
         with make_eval_env(self.game_spec, players, shuffle_instances = False, instances_name=self.eval_instances, batch_size=self.batch_size) as self.eval_env:
+            print("Make eval env -- Done")
             self.eval_buffer = BatchRolloutBuffer(self.eval_env)
+        print("Make eval buffer -- Done")
 
         self.add_callback(RolloutProgressCallback(self.eval_env.get_rollout_length()))
 
